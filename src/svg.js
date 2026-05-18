@@ -26,14 +26,14 @@ const THEMES = {
 };
 
 const DEFAULTS = {
-  width: 800,
-  height: 400,
+  width: 1000,
+  height: 500,
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
   theme: 'light',
   title: '',
   showGrid: true,
   showAxes: true,
-  xTicks: 5,
+  xTicks: 8,
   yTicks: 5
 };
 
@@ -163,7 +163,10 @@ function buildAxes(o, plot, range, bars) {
 
 function buildTitle(o) {
   if (!o.title) return '';
-  return `<text x="${o.padding.left}" y="${o.padding.top - 8}" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="${o.colors.text}">${escapeXml(o.title)}</text>`;
+  // Anchored to the right so the legend (top-left of the plot area)
+  // never overlaps the title text.
+  const x = o.width - o.padding.right;
+  return `<text x="${x}" y="${o.padding.top - 8}" text-anchor="end" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="${o.colors.text}">${escapeXml(o.title)}</text>`;
 }
 
 function defaultTitle(stock) {
@@ -417,7 +420,8 @@ export function renderMultiLineChart(stocks, options = {}) {
     const labelPx = maxChars * charPx;
     const boxW = padX + swatchW + gap + labelPx + padX;
     const boxH = padY * 2 + series.length * lh;
-    const boxX = plot.x + plot.w - boxW - 4;
+    // Top-left of the plot area
+    const boxX = plot.x + 4;
     const boxY = plot.y + 4;
 
     const items = series

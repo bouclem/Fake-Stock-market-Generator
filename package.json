@@ -1,6 +1,6 @@
 {
   "name": "stock-market-gen",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Generate realistic fake stock market data plus SVG charts (line, area, bar/OHLC, candlestick) and standalone HTML pages. Zero dependencies, seeded, works in Node and the browser.",
   "type": "module",
   "main": "./dist/index.cjs",

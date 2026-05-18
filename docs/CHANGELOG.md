@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## 1.2.1 — 2026-05-19
+
+### Changed
+- Multi-line chart legend now sits in the **top-left** of the plot area instead of top-right
+- Chart titles move to the top-right so they don't overlap the legend
+- Default chart size is now **1000×500** (was 800×400)
+- Default `xTicks` is now **8** (was 5) so timelines have more date labels out of the box
+
 ## 1.2.0 — 2026-05-18
 
 ### Added
