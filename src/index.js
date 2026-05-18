@@ -1,6 +1,6 @@
 // Public API.
 
-export { generateStock, generateMarket } from './generator.js';
+export { generateStock, generateMarket, toJSON, fromJSON } from './generator.js';
 export {
   renderChart,
   renderLineChart,

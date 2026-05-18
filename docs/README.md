@@ -31,6 +31,8 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - OHLCV bars (open, high, low, close, volume)
 - pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds
 - override anything: symbol, name, sector, start price, drift, volatility, start date
+- supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
+- save to JSON and reload it later — output is plain data
 - pass a `stocks` array to define each company yourself
 - reproducible output via a seed
 
@@ -88,6 +90,52 @@ Or skip the array entirely and just get random tickers with no company info:
 const market = generateMarket({ count: 8, bars: 90, seed: 'demo' });
 ```
 
+## Bring your own prices
+
+Got real prices, hand-picked numbers, or output from another model? Pass them straight in. The generator skips its random walk and uses your data.
+
+```js
+import { generateStock } from 'stock-market-gen';
+
+// Just the close prices — open/high/low/volume are synthesised around them
+const stock = generateStock({
+  symbol: 'MINE',
+  name: 'My Series',
+  startDate: '2024-01-01',
+  interval: '1d',
+  prices: [100, 101.5, 99.2, 103.8, 105.1, 102.4, 107.0]
+});
+
+// Or full OHLC bars, kept exactly as-is
+const stock2 = generateStock({
+  interval: '1d',
+  startDate: '2024-01-01',
+  ohlc: [
+    { open: 100, high: 102, low: 99,  close: 101 },
+    { open: 101, high: 105, low: 100, close: 104 }
+  ]
+});
+```
+
+## Save and load with JSON
+
+The output is plain JSON-safe data, so saving and reloading is trivial:
+
+```js
+import { generateStock, toJSON, fromJSON } from 'stock-market-gen';
+import { writeFileSync, readFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 365, interval: '1d', seed: 'year' });
+
+// Save
+writeFileSync('stock.json', toJSON(stock));
+
+// Load — bars are validated, then ready to render or analyse
+const restored = fromJSON(readFileSync('stock.json', 'utf8'));
+```
+
+`toJSON(stock)` is a thin wrapper around `JSON.stringify`. `fromJSON(text)` parses, validates, and returns a `Stock` ready to feed back into any chart renderer.
+
 ## API
 
 ### `generateStock(options) -> Stock`
@@ -104,6 +152,8 @@ const market = generateMarket({ count: 8, bars: 90, seed: 'demo' });
 | `interval`    | `number \| string`         | `"1d"`           | ms or `"1m"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1y"` |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
 | `seed`        | `number \| string`         | random           | reproducible output |
+| `prices`      | `number[]`                 | none             | use your own close prices; `bars` becomes the array length |
+| `ohlc`        | `Bar[]`                    | none             | use your own full OHLC bars verbatim |
 
 ### `generateMarket({ count, stocks, ...stockOptions }) -> Stock[]`
 
@@ -154,7 +204,7 @@ import { generateMarket, renderHtmlPage } from 'stock-market-gen';
 import { writeFileSync } from 'node:fs';
 
 const market = generateMarket({ count: 8, bars: 90, seed: 'page' });
-writeFileSync('market.html', renderHtmlPage(market, { theme: 'dark', chartType: 'area' }));
+writeFileSync('market.html', renderHtmlPage(market, { theme: 'dark' })); // line is the default
 ```
 
 ## Examples
@@ -164,9 +214,195 @@ npm run example       # writes out/line.svg and out/candle.svg
 npm run example:page  # writes out/market.html
 ```
 
-## Why a rewrite
+## Glossary
 
-The original package depended on the deprecated `faker` library, used a plain random walk that could go negative, logged to the console from inside library functions, and shipped CommonJS only. This rewrite drops all dependencies, uses Geometric Brownian Motion so prices stay positive, ships dual ESM + CJS, adds OHLCV bars, configurable intervals, seeded output, and four chart renderers plus an HTML page builder.
+A few finance terms that show up in this package:
+
+- **bar** — a single data point covering one time period (open, high, low, close, volume). 100 bars on a daily chart = 100 days of data. The "bar chart" type is just one way to draw bars; line, area and candlestick all render the same bar data, just differently.
+- **OHLC** — open / high / low / close, the four prices per bar.
+- **OHLCV** — OHLC plus volume.
+- **drift** — average expected return per year. `0.1` = +10%/year on average.
+- **volatility** — how wild the swings are, annualised. `0.3` = roughly ±30% swings per year.
+- **seed** — any string or number. Same seed = same output every time.
+
+## Tutorial — building a market dashboard
+
+Walk through a complete project from scratch. Output: a `dashboard.html` you can open in a browser.
+
+### 1. Install
+
+```bash
+mkdir my-dashboard
+cd my-dashboard
+npm init -y
+npm install stock-market-gen
+```
+
+Open `package.json` and add `"type": "module"` so you can use `import`.
+
+### 2. Generate a market
+
+Create `dashboard.js`:
+
+```js
+import { generateMarket, renderHtmlPage } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const market = generateMarket({
+  bars: 365,                 // one year of daily data
+  interval: '1d',
+  startDate: '2024-01-01',
+  seed: 'my-dashboard',      // change this for a different market
+  stocks: [
+    { symbol: 'NOVA', name: 'Nova Corp',     sector: 'Tech',     startPrice: 250, drift: 0.18, volatility: 0.35 },
+    { symbol: 'HRBR', name: 'Harbor Bank',   sector: 'Finance',  startPrice: 120, drift: 0.06, volatility: 0.18 },
+    { symbol: 'PEAK', name: 'Peak Energy',   sector: 'Energy',   startPrice: 60,  drift: -0.05, volatility: 0.45 },
+    { symbol: 'GRVN', name: 'Greenvine Co.', sector: 'Consumer', startPrice: 80,  drift: 0.10, volatility: 0.22 }
+  ]
+});
+
+writeFileSync('dashboard.html', renderHtmlPage(market, {
+  title: 'My Portfolio',
+  theme: 'dark'
+}));
+
+console.log('Open dashboard.html');
+```
+
+Run it:
+
+```bash
+node dashboard.js
+```
+
+Open `dashboard.html` in any browser. You get a dark-themed grid with one card per stock, each with a line chart, the latest price, and the percent change since day one.
+
+### 3. Save the data
+
+Want to keep the data so you can re-render later without regenerating?
+
+```js
+import { toJSON } from 'stock-market-gen';
+writeFileSync('market.json', toJSON(market));
+```
+
+### 4. Reload and analyse
+
+```js
+import { fromJSON, renderCandlestickChart } from 'stock-market-gen';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const stocks = JSON.parse(readFileSync('market.json', 'utf8'));
+const nova = fromJSON(stocks[0]);
+
+// Compute simple moving average over the closes
+const window = 20;
+const closes = nova.bars.map((b) => b.close);
+const sma = closes.map((_, i, a) => {
+  if (i < window - 1) return null;
+  const slice = a.slice(i - window + 1, i + 1);
+  return slice.reduce((s, n) => s + n, 0) / window;
+});
+
+console.log(`${nova.symbol} latest close: ${closes.at(-1)}`);
+console.log(`${nova.symbol} 20d SMA:      ${sma.at(-1).toFixed(2)}`);
+
+writeFileSync('nova.svg', renderCandlestickChart(nova, { theme: 'light' }));
+```
+
+### 5. Use your own prices
+
+Have real data, hand-picked numbers, or output from another system? Skip the random walk:
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const myCloses = [100, 102.3, 101.1, 105.7, 108.2, 106.9, 110.5, 113.0, 111.4, 115.8];
+
+const stock = generateStock({
+  symbol: 'MINE',
+  name: 'My Series',
+  startDate: '2024-06-01',
+  interval: '1d',
+  prices: myCloses           // bar count is taken from this array
+});
+
+writeFileSync('mine.svg', renderLineChart(stock));
+```
+
+`prices` gives close prices only and the package fills in plausible open/high/low/volume. If you have full OHLC, pass `ohlc: [...]` instead and every value is preserved exactly.
+
+### 6. Embed a chart in a web page
+
+Every render function returns an SVG string, which is just text. Drop it directly into HTML:
+
+```js
+import { generateStock, renderAreaChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 120, seed: 'web' });
+const svg = renderAreaChart(stock, { width: 1000, height: 400, theme: 'light' });
+
+const html = `<!doctype html>
+<title>${stock.symbol}</title>
+<body style="font-family: system-ui; padding: 24px;">
+  <h1>${stock.symbol}</h1>
+  ${svg}
+</body>`;
+
+writeFileSync('chart.html', html);
+```
+
+Or in a browser bundle, use it the same way — just inject the returned string into the DOM with `innerHTML`.
+
+### 7. Reproducibility
+
+Pass the same `seed` and you get the exact same output, on any machine, in any version of Node. This is useful for tests, demos, and golden snapshots:
+
+```js
+const a = generateStock({ bars: 50, seed: 'pinned' });
+const b = generateStock({ bars: 50, seed: 'pinned' });
+// a.bars deep-equals b.bars
+```
+
+Drop the seed and you get fresh random data every run.
+
+## Recipes
+
+### Just one chart
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+const svg = renderLineChart(generateStock({ bars: 100 }));
+```
+
+### A bigger market with random tickers
+
+```js
+const market = generateMarket({ count: 25, bars: 90, seed: 'demo' });
+```
+
+### Every chart type, side by side
+
+```js
+import { generateStock, renderChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 60, seed: 'demo' });
+for (const t of ['line', 'area', 'bar', 'candlestick']) {
+  writeFileSync(`${t}.svg`, renderChart(stock, t));
+}
+```
+
+### Custom colors
+
+```js
+renderLineChart(stock, {
+  theme: 'dark',
+  colors: { line: '#fbbf24', grid: '#444' }
+});
+```
 
 ## License
 

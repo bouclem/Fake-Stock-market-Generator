@@ -122,7 +122,7 @@ function buildAxes(o, plot, range, bars) {
     }
     if (o.showAxes) {
       parts.push(
-        `<text x="${plot.x - 8}" y="${y + 4}" text-anchor="end" font-family="system-ui, sans-serif" font-size="11" fill="${o.colors.text}">${formatPrice(value)}</text>`
+        `<text x="${plot.x - 8}" y="${y + 4}" text-anchor="end" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatPrice(value)}</text>`
       );
     }
   }
@@ -134,7 +134,7 @@ function buildAxes(o, plot, range, bars) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
       const x = plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
       parts.push(
-        `<text x="${x}" y="${plot.y + plot.h + 18}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="${o.colors.text}">${formatDateShort(bars[idx].time)}</text>`
+        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time)}</text>`
       );
     }
   }
@@ -144,7 +144,7 @@ function buildAxes(o, plot, range, bars) {
 
 function buildTitle(o) {
   if (!o.title) return '';
-  return `<text x="${o.padding.left}" y="${o.padding.top - 8}" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="${o.colors.text}">${escapeXml(o.title)}</text>`;
+  return `<text x="${o.padding.left}" y="${o.padding.top - 8}" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="${o.colors.text}">${escapeXml(o.title)}</text>`;
 }
 
 function defaultTitle(stock) {

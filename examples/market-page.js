@@ -15,7 +15,7 @@ const market = generateMarket({
 const html = renderHtmlPage(market, {
   title: 'Fake Stock Market',
   theme: 'dark',
-  chartType: 'area'
+  chartType: 'line'
 });
 
 writeFileSync('out/market.html', html);

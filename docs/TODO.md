@@ -7,6 +7,8 @@ Things that could ship in future versions. Nothing here is committed.
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection (earnings spikes, gaps, splits)
+- [x] Bring-your-own price data (`prices`, `ohlc`) — shipped in 1.1.0
+- [x] JSON helpers (`toJSON`, `fromJSON`) — shipped in 1.1.0
 
 ## Charts
 - [ ] Volume sub-panel under price charts
