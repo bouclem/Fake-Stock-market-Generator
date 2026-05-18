@@ -1,0 +1,13 @@
+// Public API.
+
+export { generateStock, generateMarket } from './generator.js';
+export {
+  renderChart,
+  renderLineChart,
+  renderAreaChart,
+  renderBarChart,
+  renderCandlestickChart
+} from './svg.js';
+export { renderHtmlPage } from './html.js';
+export { createRng } from './prng.js';
+export { parseInterval } from './interval.js';

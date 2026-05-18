@@ -1,0 +1,13 @@
+# Belt-and-braces. The "files" field in package.json is the real whitelist;
+# this just makes sure nothing slips into the tarball if that field is ever
+# loosened.
+
+forrelease/
+examples/
+scripts/
+docs/
+out/
+node_modules/
+.gitignore
+*.log
+.DS_Store

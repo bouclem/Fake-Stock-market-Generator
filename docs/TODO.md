@@ -1,0 +1,19 @@
+# TODO
+
+Things that could ship in future versions. Nothing here is committed.
+
+## Generation
+- [ ] Optional calendar-aware mode for `1mo` so months use real lengths instead of a 30-day approximation
+- [ ] Skip weekends / holidays for daily bars
+- [ ] Correlated stocks within a market (sector cohorts move together)
+- [ ] Event injection (earnings spikes, gaps, splits)
+
+## Charts
+- [ ] Volume sub-panel under price charts
+- [ ] Optional moving averages (SMA, EMA)
+- [ ] Tooltips and hover state when used in HTML pages
+- [ ] PNG export helper (likely opt-in, not bundled, to stay zero-dep)
+
+## Tooling
+- [ ] CLI: `npx stock-market-gen --count 5 --bars 100 --out market.html`
+- [ ] Tests (only on request — currently skipped per project policy)
