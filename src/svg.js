@@ -28,7 +28,7 @@ const THEMES = {
 const DEFAULTS = {
   width: 800,
   height: 400,
-  padding: { top: 24, right: 16, bottom: 36, left: 56 },
+  padding: { top: 28, right: 24, bottom: 44, left: 64 },
   theme: 'light',
   title: '',
   showGrid: true,
@@ -145,8 +145,10 @@ function buildAxes(o, plot, range, bars) {
     for (let i = 0; i < xTicks; i++) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
       const x = plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
+      // Anchor the first/last labels at the plot edges so they never crop.
+      const anchor = i === 0 ? 'start' : i === xTicks - 1 ? 'end' : 'middle';
       parts.push(
-        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time, multiYear)}</text>`
+        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time, multiYear)}</text>`
       );
     }
   }

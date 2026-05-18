@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 1.1.2 — 2026-05-18
+
+### Fixed
+- Edge axis labels no longer get cropped: the first X-axis label is left-anchored at the plot edge and the last is right-anchored, so long dates like `2023-12-31` stay fully inside the chart
+- Slightly bigger default padding (`top: 28, right: 24, bottom: 44, left: 64`) so longer price labels and date strings have breathing room
+
 ## 1.1.1 — 2026-05-18
 
 ### Fixed
