@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## 1.1.1 — 2026-05-18
+
+### Fixed
+- `1mo` and `1y` intervals are now calendar-aware. Bars step to the same day of the next month/year instead of advancing by 30 or 365 fixed days, so `startDate: '1999-08-01'` with `1mo` produces `1999-08-01, 1999-09-01, 1999-10-01, …` and `1y` produces `1999-08-01, 2000-08-01, 2001-08-01, …`
+- Y-axis padding is clipped at zero so charts of low-priced series never show negative tick labels
+- X-axis labels switch to full `YYYY-MM-DD` when the chart spans more than one calendar year (instead of ambiguous `MM/DD`)
+
+### Added
+- `parseIntervalSpec` and `stepTime` helpers in `src/interval.js` for calendar-aware time stepping
+
 ## 1.1.0 — 2026-05-18
 
 ### Added

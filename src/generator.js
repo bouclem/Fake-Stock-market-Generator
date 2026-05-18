@@ -12,7 +12,7 @@
 
 import { createRng } from './prng.js';
 import { makeSymbol } from './symbols.js';
-import { parseInterval } from './interval.js';
+import { parseIntervalSpec, stepTime } from './interval.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_MS = 365 * DAY_MS;
@@ -164,7 +164,8 @@ export function generateStock(options = {}) {
   validateOptions(opts);
 
   const rng = createRng(opts.seed);
-  const intervalMs = parseInterval(opts.interval);
+  const intervalSpec = parseIntervalSpec(opts.interval);
+  const intervalMs = intervalSpec.ms;
 
   // Determine bar count from the inputs we have
   let barCount;
@@ -193,7 +194,7 @@ export function generateStock(options = {}) {
     // Mode 1: caller supplied full bars. Fill in time/date/volume if missing.
     for (let i = 0; i < barCount; i++) {
       const src = opts.ohlc[i];
-      const time = Number.isFinite(src.time) ? src.time : startTime + i * intervalMs;
+      const time = Number.isFinite(src.time) ? src.time : stepTime(startTime, intervalSpec, i);
       bars[i] = {
         time,
         date: typeof src.date === 'string' ? src.date : new Date(time).toISOString(),
@@ -212,7 +213,7 @@ export function generateStock(options = {}) {
     for (let i = 0; i < barCount; i++) {
       const close = opts.prices[i];
       const synth = synthBarFromClose(prevClose, close, rng);
-      const time = startTime + i * intervalMs;
+      const time = stepTime(startTime, intervalSpec, i);
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
@@ -251,7 +252,7 @@ export function generateStock(options = {}) {
         Math.round((500_000 + rng.next() * 1_500_000) * (1 + move * 20))
       );
 
-      const time = startTime + i * intervalMs;
+      const time = stepTime(startTime, intervalSpec, i);
       bars[i] = {
         time,
         date: new Date(time).toISOString(),

@@ -87,9 +87,10 @@ function priceRange(bars, useOHLC) {
     min -= 1;
     max += 1;
   }
-  // Pad the range a touch so the line doesn't kiss the edges
+  // Pad the range a touch so the line doesn't kiss the edges.
+  // Clip to zero so stock charts never show negative prices.
   const pad = (max - min) * 0.05;
-  return { min: min - pad, max: max + pad };
+  return { min: Math.max(0, min - pad), max: max + pad };
 }
 
 function formatPrice(n) {
@@ -98,9 +99,19 @@ function formatPrice(n) {
   return n.toFixed(2);
 }
 
-function formatDateShort(time) {
+function formatDateShort(time, multiYear) {
   const d = new Date(time);
-  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return multiYear ? `${yyyy}-${mm}-${dd}` : `${mm}/${dd}`;
+}
+
+function spansMultipleYears(bars) {
+  if (bars.length < 2) return false;
+  const first = new Date(bars[0].time).getUTCFullYear();
+  const last = new Date(bars[bars.length - 1].time).getUTCFullYear();
+  return last !== first;
 }
 
 function buildAxes(o, plot, range, bars) {
@@ -129,12 +140,13 @@ function buildAxes(o, plot, range, bars) {
 
   // X axis (time) ticks — pick ~5 evenly spaced bars
   if (o.showAxes) {
+    const multiYear = spansMultipleYears(bars);
     const xTicks = Math.min(5, bars.length);
     for (let i = 0; i < xTicks; i++) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
       const x = plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
       parts.push(
-        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time)}</text>`
+        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time, multiYear)}</text>`
       );
     }
   }
