@@ -32,7 +32,9 @@ const DEFAULTS = {
   theme: 'light',
   title: '',
   showGrid: true,
-  showAxes: true
+  showAxes: true,
+  xTicks: 5,
+  yTicks: 5
 };
 
 /**
@@ -44,6 +46,8 @@ const DEFAULTS = {
  * @property {string} [title]
  * @property {boolean} [showGrid]
  * @property {boolean} [showAxes]
+ * @property {number} [xTicks]   - Number of date labels on the X axis (default: 5)
+ * @property {number} [yTicks]   - Number of price labels on the Y axis (default: 5)
  * @property {Partial<typeof THEMES.light>} [colors] - Override individual colors
  */
 
@@ -117,12 +121,12 @@ function spansMultipleYears(bars) {
 function buildAxes(o, plot, range, bars) {
   if (!o.showAxes && !o.showGrid) return '';
 
-  const ticks = 5;
+  const yTicks = Math.max(2, Math.floor(o.yTicks || 5));
   const parts = [];
 
   // Y axis (price) ticks
-  for (let i = 0; i <= ticks; i++) {
-    const t = i / ticks;
+  for (let i = 0; i <= yTicks; i++) {
+    const t = i / yTicks;
     const y = plot.y + plot.h - t * plot.h;
     const value = range.min + t * (range.max - range.min);
 
@@ -138,10 +142,11 @@ function buildAxes(o, plot, range, bars) {
     }
   }
 
-  // X axis (time) ticks — pick ~5 evenly spaced bars
+  // X axis (time) ticks — pick N evenly spaced bars (configurable via xTicks)
   if (o.showAxes) {
     const multiYear = spansMultipleYears(bars);
-    const xTicks = Math.min(5, bars.length);
+    const requested = Math.max(2, Math.floor(o.xTicks || 5));
+    const xTicks = Math.min(requested, bars.length);
     for (let i = 0; i < xTicks; i++) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
       const x = plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
@@ -314,6 +319,134 @@ export function renderCandlestickChart(stock, options) {
 
   return svgWrap(o, body);
 }
+
+/**
+ * Render a single chart with multiple companies on the same axes.
+ * Series are plotted against actual timestamps, so stocks that start at
+ * different dates appear at the correct horizontal position. Each line spans
+ * only the period its data covers.
+ *
+ * @param {import('./generator.js').Stock[]} stocks
+ * @param {ChartOptions & { mode?: 'price'|'normalized', legend?: boolean }} [options]
+ *   `mode` controls how the series are stacked:
+ *     - `'price'`      — raw closing prices (good when scales are similar)
+ *     - `'normalized'` — each series rebased to 100 at its first bar (default;
+ *                        works regardless of price differences)
+ *   Each stock can also carry a `color` field; otherwise a built-in palette is used.
+ * @returns {string} SVG document
+ */
+export function renderMultiLineChart(stocks, options = {}) {
+  if (!Array.isArray(stocks) || stocks.length === 0) {
+    throw new Error('renderMultiLineChart: stocks must be a non-empty array');
+  }
+  const o = resolve(options);
+  const plot = plotArea(o);
+  const mode = options.mode || 'normalized';
+  const showLegend = options.legend !== false;
+  const palette = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0ea5e9', '#ec4899', '#14b8a6'];
+
+  // Build per-series data: time-indexed values, each series may span its own range
+  const series = stocks.map((s, i) => {
+    if (!s || !Array.isArray(s.bars) || s.bars.length === 0) {
+      throw new Error(`renderMultiLineChart: stock at index ${i} has no bars`);
+    }
+    const closes = s.bars.map((b) => b.close);
+    const base = closes[0] || 1;
+    const values = mode === 'normalized' ? closes.map((c) => (c / base) * 100) : closes;
+    const points = s.bars.map((b, j) => ({ time: b.time, value: values[j] }));
+    return {
+      stock: s,
+      points,
+      color: s.color || palette[i % palette.length]
+    };
+  });
+
+  // Compute a shared time domain (union of every series) and a shared price domain
+  let tMin = Infinity;
+  let tMax = -Infinity;
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  for (const s of series) {
+    for (const p of s.points) {
+      if (p.time < tMin) tMin = p.time;
+      if (p.time > tMax) tMax = p.time;
+      if (p.value < vMin) vMin = p.value;
+      if (p.value > vMax) vMax = p.value;
+    }
+  }
+  if (vMin === vMax) { vMin -= 1; vMax += 1; }
+  const vPad = (vMax - vMin) * 0.05;
+  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+  if (tMax === tMin) tMax = tMin + 1;
+
+  function xForTime(time) {
+    const t = (time - tMin) / (tMax - tMin);
+    return plot.x + t * plot.w;
+  }
+
+  const lines = series
+    .map((s) => {
+      const points = s.points
+        .map((p) => `${xForTime(p.time).toFixed(2)},${yAt(plot, p.value, range).toFixed(2)}`)
+        .join(' ');
+      return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    })
+    .join('');
+
+  // Build a synthetic "bars" array spanning the union, for axis labels
+  const axisBars = [];
+  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 5));
+  for (let i = 0; i < xTicksCount; i++) {
+    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
+    axisBars.push({ time: t });
+  }
+
+  // Legend at top-right of the plot area — drawn last on a solid background
+  // so price lines never pass through the labels.
+  let legend = '';
+  if (showLegend) {
+    const lh = 18;
+    const swatchW = 18;
+    const gap = 8;
+    const padX = 10;
+    const padY = 6;
+    const charPx = 9; // generous estimate so long symbols never crowd the swatch
+
+    // Size the box to fit the widest symbol
+    const maxChars = Math.max(...series.map((s) => String(s.stock.symbol).length));
+    const labelPx = maxChars * charPx;
+    const boxW = padX + swatchW + gap + labelPx + padX;
+    const boxH = padY * 2 + series.length * lh;
+    const boxX = plot.x + plot.w - boxW - 4;
+    const boxY = plot.y + 4;
+
+    const items = series
+      .map((s, i) => {
+        const y = boxY + padY + i * lh;
+        const safeLabel = escapeXml(s.stock.symbol);
+        const swatchX = boxX + padX;
+        const textX = swatchX + swatchW + gap;
+        return (
+          `<line x1="${swatchX}" y1="${y + 7}" x2="${swatchX + swatchW}" y2="${y + 7}" stroke="${s.color}" stroke-width="3" stroke-linecap="round"/>` +
+          `<text x="${textX}" y="${y + 11}" text-anchor="start" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${safeLabel}</text>`
+        );
+      })
+      .join('');
+
+    legend =
+      `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="6" ry="6" fill="${o.colors.bg}" fill-opacity="0.7" stroke="${o.colors.grid}" stroke-width="1"/>` +
+      items;
+  }
+
+  const body =
+    buildAxes(o, plot, range, axisBars) +
+    lines +
+    legend +
+    buildTitle({ ...o, title: o.title || (mode === 'normalized' ? 'Comparison (rebased to 100)' : 'Comparison') });
+
+  return svgWrap(o, body);
+}
+
 
 /**
  * Universal renderer. Pick a chart type by name.

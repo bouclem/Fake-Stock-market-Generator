@@ -50,6 +50,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number|string} [interval]       - Bar size; ms or "1m"/"1h"/"1d"/"1w"/"1mo"/"1y"
  * @property {Date|number|string} [startDate] - First bar timestamp (default: now - bars*interval)
  * @property {number|string} [seed]           - Reproducible output
+ * @property {'stock'|'crypto'} [kind]         - Sets defaults for price range, drift and volatility (default: 'stock')
  * @property {number[]} [prices]              - Custom close prices, one per bar.
  *   When set, `bars` is taken from this array's length and the random walk is
  *   skipped. Open/high/low/volume are still synthesised around your closes.
@@ -60,7 +61,30 @@ const YEAR_MS = 365 * DAY_MS;
 
 const DEFAULTS = {
   bars: 100,
-  interval: '1d'
+  interval: '1d',
+  kind: 'stock'
+};
+
+const KIND_PROFILES = {
+  stock: {
+    startPriceMin: 50,
+    startPriceMax: 500,
+    logPrice: false,
+    driftMin: -0.15,
+    driftMax: 0.25,
+    volMin: 0.1,
+    volMax: 0.6
+  },
+  crypto: {
+    // Wider price range (log-distributed) and much higher volatility.
+    startPriceMin: 0.01,
+    startPriceMax: 50000,
+    logPrice: true,
+    driftMin: -0.3,
+    driftMax: 0.6,
+    volMin: 0.6,
+    volMax: 1.5
+  }
 };
 
 function round2(n) {
@@ -101,6 +125,9 @@ function validateOptions(opts) {
     if (!Number.isFinite(t)) {
       throw new Error(`"startDate" is not a valid date: ${opts.startDate}`);
     }
+  }
+  if (opts.kind !== undefined && opts.kind !== 'stock' && opts.kind !== 'crypto') {
+    throw new Error(`"kind" must be "stock" or "crypto", got ${opts.kind}`);
   }
   if (opts.prices !== undefined) {
     if (!Array.isArray(opts.prices) || opts.prices.length < 1) {
@@ -227,9 +254,20 @@ export function generateStock(options = {}) {
     }
   } else {
     // Mode 3: full GBM walk.
-    const startPrice = opts.startPrice ?? round2(rng.next() * 450 + 50); // 50..500
-    const drift = opts.drift ?? rng.next() * 0.4 - 0.15;
-    const volatility = opts.volatility ?? rng.next() * 0.5 + 0.1;
+    const profile = KIND_PROFILES[opts.kind];
+    let startPrice;
+    if (opts.startPrice !== undefined) {
+      startPrice = opts.startPrice;
+    } else if (profile.logPrice) {
+      // Log-uniform so crypto picks both small (sub-$1) and big ($10k+) coins.
+      const logMin = Math.log(profile.startPriceMin);
+      const logMax = Math.log(profile.startPriceMax);
+      startPrice = round2(Math.exp(logMin + rng.next() * (logMax - logMin)));
+    } else {
+      startPrice = round2(profile.startPriceMin + rng.next() * (profile.startPriceMax - profile.startPriceMin));
+    }
+    const drift = opts.drift ?? profile.driftMin + rng.next() * (profile.driftMax - profile.driftMin);
+    const volatility = opts.volatility ?? profile.volMin + rng.next() * (profile.volMax - profile.volMin);
     const dt = intervalMs / YEAR_MS;
     const drift2 = (drift - (volatility * volatility) / 2) * dt;
     const diffusion = volatility * Math.sqrt(dt);
@@ -270,6 +308,7 @@ export function generateStock(options = {}) {
     symbol,
     name,
     sector,
+    kind: opts.kind,
     startPrice: round2(opts.startPrice ?? firstOpen),
     interval: intervalMs,
     bars
@@ -288,20 +327,38 @@ export function toJSON(stockOrMarket, indent = 2) {
 }
 
 /**
- * Rebuild a stock from a JSON string or parsed object produced by toJSON.
- * @param {string | Stock} input
- * @returns {Stock}
+ * Rebuild a stock (or a market — array of stocks) from a JSON string or
+ * parsed object produced by toJSON. The shape is preserved: pass an array,
+ * get an array; pass a single object, get a single stock.
+ * @param {string | Stock | Stock[]} input
+ * @returns {Stock | Stock[]}
  */
 export function fromJSON(input) {
   const obj = typeof input === 'string' ? JSON.parse(input) : input;
-  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.bars)) {
-    throw new Error('fromJSON: expected an object with a "bars" array');
+
+  // Array -> rebuild every entry. Useful with renderMultiLineChart.
+  if (Array.isArray(obj)) {
+    return obj.map((entry, i) => {
+      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.bars)) {
+        throw new Error(`fromJSON: array entry ${i} is missing a "bars" array`);
+      }
+      return rebuildOne(entry);
+    });
   }
+
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.bars)) {
+    throw new Error('fromJSON: expected an object with a "bars" array, or an array of such objects');
+  }
+  return rebuildOne(obj);
+}
+
+function rebuildOne(obj) {
   // Reuse the OHLC path so we get full validation for free.
   return generateStock({
     symbol: obj.symbol,
     name: obj.name ?? undefined,
     sector: obj.sector ?? undefined,
+    kind: obj.kind ?? undefined,
     startPrice: obj.startPrice,
     interval: obj.interval,
     ohlc: obj.bars

@@ -29,11 +29,13 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 
 - single stocks or whole markets
 - OHLCV bars (open, high, low, close, volume)
+- `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
 - pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
 - save to JSON and reload it later — output is plain data
 - pass a `stocks` array to define each company yourself
+- compare several companies on a single chart with `renderMultiLineChart`
 - reproducible output via a seed
 
 ## Chart types
@@ -175,6 +177,26 @@ const market = generateMarket({
   ]
 });
 ```
+
+### Per-line start prices and start dates on a multi-line chart
+
+Every stock can have its own `startPrice` and `startDate`. When you render them with `renderMultiLineChart` in `mode: 'price'`, each line begins at its own value:
+
+```js
+import { generateStock, renderMultiLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const a = generateStock({ symbol: 'LOW',  startPrice: 1.0, bars: 120, startDate: '2024-01-01', seed: 'a' });
+const b = generateStock({ symbol: 'MID',  startPrice: 1.8, bars: 120, startDate: '2024-02-01', seed: 'b' });
+const c = generateStock({ symbol: 'TINY', startPrice: 0.7, bars: 120, startDate: '2024-03-01', seed: 'c' });
+
+writeFileSync(
+  'starts.svg',
+  renderMultiLineChart([a, b, c], { mode: 'price', title: 'Custom starts' })
+);
+```
+
+`mode: 'normalized'` (the default) is great for comparing relative performance — every line starts at 100. `mode: 'price'` keeps the actual values, so different starting points stay visible.
 
 ### `renderChart(stock, type, options)`
 
@@ -369,6 +391,45 @@ const b = generateStock({ bars: 50, seed: 'pinned' });
 Drop the seed and you get fresh random data every run.
 
 ## Recipes
+
+### Compare multiple companies on one chart
+
+```js
+import { generateMarket, renderMultiLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const market = generateMarket({
+  bars: 365,
+  interval: '1d',
+  startDate: '2024-01-01',
+  seed: 'compare',
+  stocks: [
+    { symbol: 'ALPHA' },
+    { symbol: 'BRAVO' },
+    { symbol: 'CHARL', color: '#dc2626' } // optional explicit color
+  ]
+});
+
+writeFileSync('compare.svg', renderMultiLineChart(market, {
+  width: 900,
+  height: 400,
+  title: 'My Portfolio — 2024',
+  mode: 'normalized' // or 'price' for raw values
+}));
+```
+
+`mode: 'normalized'` rebases each series to 100 at its first bar so series with very different price levels stay visually comparable. Use `mode: 'price'` when scales are similar.
+
+### Generate crypto instead of stocks
+
+```js
+import { generateStock, generateMarket } from 'stock-market-gen';
+
+const btc  = generateStock({ kind: 'crypto', symbol: 'BTC', bars: 365 });
+const coins = generateMarket({ count: 5, bars: 90, kind: 'crypto', seed: 'coins' });
+```
+
+Crypto uses log-distributed start prices (anywhere from sub-$1 to $50k+), higher drift and much higher volatility than stocks.
 
 ### Just one chart
 

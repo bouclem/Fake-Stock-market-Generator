@@ -6,7 +6,8 @@ export {
   renderLineChart,
   renderAreaChart,
   renderBarChart,
-  renderCandlestickChart
+  renderCandlestickChart,
+  renderMultiLineChart
 } from './svg.js';
 export { renderHtmlPage } from './html.js';
 export { createRng } from './prng.js';

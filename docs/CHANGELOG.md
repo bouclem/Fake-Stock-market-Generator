@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 1.2.0 — 2026-05-18
+
+### Added
+- `renderMultiLineChart(stocks, options)` — render multiple companies on a single chart with a built-in legend. Series are plotted against actual timestamps, so stocks with different `startDate` values land at the right horizontal position (a 2020 series sits on the left, a 2022 series on the right). Supports `mode: 'price'` (raw prices) or `mode: 'normalized'` (rebased to 100, the default).
+- `kind: 'stock' | 'crypto'` option on `generateStock`. Crypto uses log-distributed start prices (sub-$1 coins to $50k+), wider drift and much higher volatility. Defaults to `'stock'`.
+- Stock objects now carry a `kind` field, preserved through `toJSON` / `fromJSON`.
+- Per-stock `color` field is honored by the multi-line renderer; otherwise a built-in palette assigns colors automatically.
+- `xTicks` and `yTicks` chart options to control the number of date / price labels (defaults to 5 each).
+- `fromJSON` now accepts arrays of stocks, so a market saved with `toJSON(market)` round-trips back into an array you can pass straight to `renderMultiLineChart`.
+
+### Notes
+- The chart `title` option (already in the API) is the **image title** — completely separate from a stock's `symbol` and `name`. Pass any string and it appears at the top of the SVG: `renderLineChart(stock, { title: 'Q1 Review' })`.
+
 ## 1.1.2 — 2026-05-18
 
 ### Fixed
