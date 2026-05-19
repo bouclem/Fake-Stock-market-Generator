@@ -88,8 +88,17 @@ const KIND_PROFILES = {
 };
 
 function round2(n) {
+  // Backwards-compatible name. Picks precision based on magnitude so that
+  // small prices (crypto, sub-dollar tokens) keep 4 significant decimals
+  // while normal stock prices stay readable at 2 decimals.
+  if (!Number.isFinite(n)) return n;
+  const abs = Math.abs(n);
+  if (abs < 1) return Math.round(n * 10000) / 10000;
+  if (abs < 100) return Math.round(n * 100) / 100;
   return Math.round(n * 100) / 100;
 }
+
+const PRICE_FLOOR = 0.0001;
 
 function typeOf(v) {
   if (v === null) return 'null';
@@ -172,7 +181,7 @@ function synthBarFromClose(prevClose, close, rng) {
   const move = Math.abs(close - open);
   const wick = move + open * 0.005 * (0.5 + rng.next());
   const high = Math.max(open, close) + wick * rng.next();
-  const low = Math.max(0.01, Math.min(open, close) - wick * rng.next());
+  const low = Math.max(PRICE_FLOOR, Math.min(open, close) - wick * rng.next());
   const relMove = move / open;
   const volume = Math.max(
     1,
@@ -278,11 +287,11 @@ export function generateStock(options = {}) {
     for (let i = 0; i < barCount; i++) {
       const open = price;
       let close = open * Math.exp(drift2 + diffusion * rng.gauss());
-      if (close < 0.01) close = 0.01;
+      if (close < PRICE_FLOOR) close = PRICE_FLOOR;
 
       const wick = Math.abs(open - close) + open * diffusion * (0.5 + rng.next());
       const high = Math.max(open, close) + wick * rng.next();
-      const low = Math.max(0.01, Math.min(open, close) - wick * rng.next());
+      const low = Math.max(PRICE_FLOOR, Math.min(open, close) - wick * rng.next());
 
       const move = Math.abs(close - open) / open;
       const volume = Math.max(

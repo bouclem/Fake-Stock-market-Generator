@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## 1.2.2 — 2026-05-19
+
+### Added
+- Multi-line chart `area: true` option. Each series gets a translucent gradient fill from the line down to the chart bottom. Areas are painted from largest peak to smallest so smaller series stay visible on top of taller ones.
+- Sub-cent price support. Internal floor moved from `0.01` to `0.0001`, and prices below `$1` keep 4 decimal places (below `$0.01` keeps 6). Custom `prices`/`ohlc` arrays accept any positive number down to `0.0001`.
+- Axis labels auto-format with extra decimals when prices are small, so a chart of $0.0008 tokens shows readable values instead of rounding to zero.
+
 ## 1.2.1 — 2026-05-19
 
 ### Changed

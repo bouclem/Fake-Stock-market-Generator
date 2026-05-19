@@ -68,6 +68,14 @@ function escapeXml(str) {
     .replace(/'/g, '&apos;');
 }
 
+function hashString(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  }
+  return h >>> 0;
+}
+
 function plotArea(o) {
   return {
     x: o.padding.left,
@@ -98,9 +106,12 @@ function priceRange(bars, useOHLC) {
 }
 
 function formatPrice(n) {
-  if (n >= 1000) return n.toFixed(0);
-  if (n >= 100) return n.toFixed(1);
-  return n.toFixed(2);
+  const abs = Math.abs(n);
+  if (abs >= 1000) return n.toFixed(0);
+  if (abs >= 100) return n.toFixed(1);
+  if (abs >= 1) return n.toFixed(2);
+  if (abs >= 0.01) return n.toFixed(4);
+  return n.toFixed(6);
 }
 
 function formatDateShort(time, multiYear) {
@@ -335,6 +346,9 @@ export function renderCandlestickChart(stock, options) {
  *     - `'price'`      — raw closing prices (good when scales are similar)
  *     - `'normalized'` — each series rebased to 100 at its first bar (default;
  *                        works regardless of price differences)
+ *   When `area: true`, each series is also drawn as a translucent gradient
+ *   filled down to the chart bottom. Series are painted from largest area to
+ *   smallest at each X position so smaller series stay visible on top.
  *   Each stock can also carry a `color` field; otherwise a built-in palette is used.
  * @returns {string} SVG document
  */
@@ -346,6 +360,7 @@ export function renderMultiLineChart(stocks, options = {}) {
   const plot = plotArea(o);
   const mode = options.mode || 'normalized';
   const showLegend = options.legend !== false;
+  const showArea = options.area === true;
   const palette = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0ea5e9', '#ec4899', '#14b8a6'];
 
   // Build per-series data: time-indexed values, each series may span its own range
@@ -387,11 +402,50 @@ export function renderMultiLineChart(stocks, options = {}) {
     return plot.x + t * plot.w;
   }
 
+  // Pre-compute pixel points for each series and the area polygon if needed
+  const baseY = plot.y + plot.h;
+  for (const s of series) {
+    s.pixels = s.points.map((p) => ({
+      x: xForTime(p.time),
+      y: yAt(plot, p.value, range),
+      v: p.value
+    }));
+  }
+
+  // Painting order for areas: largest peak first, so smaller series sit on top.
+  // Ties broken by total area so that a tall+narrow series doesn't fully hide
+  // a fat+lower one underneath.
+  const areaOrder = [...series].sort((a, b) => {
+    const aMax = Math.max(...a.points.map((p) => p.value));
+    const bMax = Math.max(...b.points.map((p) => p.value));
+    if (bMax !== aMax) return bMax - aMax;
+    const aSum = a.points.reduce((s, p) => s + p.value, 0);
+    const bSum = b.points.reduce((s, p) => s + p.value, 0);
+    return bSum - aSum;
+  });
+
+  const areas = showArea
+    ? areaOrder
+        .map((s, idx) => {
+          const id = `mlg-${idx}-${Math.abs(hashString(s.stock.symbol + s.color)).toString(36)}`;
+          const linePts = s.pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
+          const firstX = s.pixels[0].x.toFixed(2);
+          const lastX = s.pixels[s.pixels.length - 1].x.toFixed(2);
+          const polyPts = `${firstX},${baseY.toFixed(2)} ${linePts} ${lastX},${baseY.toFixed(2)}`;
+          return (
+            `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">` +
+            `<stop offset="0%" stop-color="${s.color}" stop-opacity="0.45"/>` +
+            `<stop offset="100%" stop-color="${s.color}" stop-opacity="0"/>` +
+            `</linearGradient></defs>` +
+            `<polygon points="${polyPts}" fill="url(#${id})" stroke="none"/>`
+          );
+        })
+        .join('')
+    : '';
+
   const lines = series
     .map((s) => {
-      const points = s.points
-        .map((p) => `${xForTime(p.time).toFixed(2)},${yAt(plot, p.value, range).toFixed(2)}`)
-        .join(' ');
+      const points = s.pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
       return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     })
     .join('');
@@ -444,6 +498,7 @@ export function renderMultiLineChart(stocks, options = {}) {
 
   const body =
     buildAxes(o, plot, range, axisBars) +
+    areas +
     lines +
     legend +
     buildTitle({ ...o, title: o.title || (mode === 'normalized' ? 'Comparison (rebased to 100)' : 'Comparison') });

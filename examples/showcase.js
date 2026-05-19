@@ -100,6 +100,26 @@ writeFileSync(
   })
 );
 
+// 5c. Same chart with gradient area fills under each line
+writeFileSync(
+  'out/multi-area-gradient.svg',
+  renderMultiLineChart([lowStart, midStart, tinyStart], {
+    title: 'Multi-line with gradient area fills',
+    mode: 'price',
+    area: true,
+    width: 1000,
+    height: 400,
+    theme: 'dark'
+  })
+);
+
+// 5d. Crypto-style series with 0.0001 precision
+const tinyCoin = generateStock({ kind: 'crypto', symbol: 'TINY', startPrice: 0.0008, bars: 120, seed: 'tinycoin' });
+writeFileSync(
+  'out/crypto-tiny.svg',
+  renderLineChart(tinyCoin, { title: 'Sub-cent crypto: prices keep 4-6 decimals', theme: 'dark' })
+);
+
 // 6. JSON round-trip — save a market, load it back, render
 const market = generateMarket({
   count: 5,
@@ -173,6 +193,8 @@ console.log('  out/ticks-12.svg         - xTicks: 12');
 console.log('  out/multi-line.svg       - 3 stocks, 3 start dates, normalised');
 console.log('  out/multi-price-mode.svg - same, raw prices');
 console.log('  out/multi-custom-starts.svg - per-line startPrice (1.0 / 1.8 / 0.7)');
+console.log('  out/multi-area-gradient.svg - same with gradient area fills');
+console.log('  out/crypto-tiny.svg          - sub-cent crypto, 4-6 decimal precision');
 console.log('  out/market.json          - saved market data');
 console.log('  out/multi-from-json.svg  - market loaded from JSON');
 console.log('  out/multi-handcrafted.svg - multi-line from hand-built JSON');
