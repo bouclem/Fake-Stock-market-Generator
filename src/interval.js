@@ -47,6 +47,9 @@ export function parseIntervalSpec(interval) {
   }
   const n = Number(match[1]);
   const unit = match[2].toLowerCase();
+  if (n <= 0) {
+    throw new Error(`Invalid interval string: "${interval}". The numeric part must be > 0.`);
+  }
   const calendar = unit === 'mo' || unit === 'y';
   const ms = n * APPROX_MS[unit];
   return { unit, n, calendar, ms };

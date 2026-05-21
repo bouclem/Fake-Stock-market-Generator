@@ -6,6 +6,8 @@ forrelease/
 examples/
 scripts/
 docs/
+read-the-docs/
+.readthedocs.yaml
 out/
 node_modules/
 .gitignore

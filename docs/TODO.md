@@ -3,7 +3,7 @@
 Things that could ship in future versions. Nothing here is committed.
 
 ## Generation
-- [ ] Optional calendar-aware mode for `1mo` so months use real lengths instead of a 30-day approximation
+- [x] Calendar-aware mode for `1mo` and `1y` — shipped in 1.1.1
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection (earnings spikes, gaps, splits)

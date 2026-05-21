@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## 1.2.3 — 2026-05-21
+
+### Fixed
+- Multi-line area fills now layer correctly when one series is bigger in some regions and smaller in others. The previous version sorted whole series by their global peak, so a series that had one tall spike would sit on top of (or under) every other series across the entire chart. Areas are now split into per-segment trapezoids and sorted by their **local** height, so layering can flip from segment to segment and a small bar in one region no longer "phases through" a taller neighbour.
+- HTML page card charts no longer print a duplicated title in the SVG. Passing `title: ''` to any renderer now suppresses the default title fallback (the cards already show the symbol/name in their own header).
+- `renderBarChart` and `renderCandlestickChart` insets the first and last bar by half their width so they sit fully inside the plot rectangle instead of overflowing into the axis area.
+- `parseInterval` / `parseIntervalSpec` now reject zero-length intervals like `"0d"` or `"0mo"` (previously accepted, would have produced bars sharing the same timestamp).
+
 ## 1.2.2 — 2026-05-19
 
 ### Added

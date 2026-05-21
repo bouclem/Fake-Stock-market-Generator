@@ -4,6 +4,8 @@ Generate realistic fake stock market data plus SVG charts and standalone HTML pa
 
 A modern, more capable replacement for the old `fake-stock-market-generator` package.
 
+📖 **Full documentation:** [stock-market-gen.readthedocs.io](https://stock-market-gen.readthedocs.io)
+
 ## Install
 
 ```bash
@@ -30,12 +32,13 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - single stocks or whole markets
 - OHLCV bars (open, high, low, close, volume)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
-- pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds
+- pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1y`)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
 - save to JSON and reload it later — output is plain data
 - pass a `stocks` array to define each company yourself
-- compare several companies on a single chart with `renderMultiLineChart`
+- compare several companies on a single chart with `renderMultiLineChart` — including translucent gradient fills under each line
+- sub-cent precision: prices below `$1` keep 4 decimals (below `$0.01` keeps 6), so crypto-style series stay readable
 - reproducible output via a seed
 
 ## Chart types
@@ -147,11 +150,12 @@ const restored = fromJSON(readFileSync('stock.json', 'utf8'));
 | `symbol`      | `string`                   | random 2-5 chars |       |
 | `name`        | `string`                   | none (you supply it) | optional company name |
 | `sector`      | `string`                   | none (you supply it) | optional sector label |
-| `startPrice`  | `number`                   | 50–500           |       |
+| `kind`        | `'stock' \| 'crypto'`      | `'stock'`        | sets defaults for price range, drift and volatility |
+| `startPrice`  | `number`                   | random in range  | range depends on `kind` (50–500 for stocks, log-uniform 0.01–50000 for crypto) |
 | `drift`       | `number`                   | random           | annualised, e.g. `0.05` = +5%/yr |
 | `volatility`  | `number`                   | random           | annualised, e.g. `0.3` = 30%/yr |
 | `bars`        | `number`                   | `100`            | positive integer |
-| `interval`    | `number \| string`         | `"1d"`           | ms or `"1m"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1y"` |
+| `interval`    | `number \| string`         | `"1d"`           | ms or `"1m"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1y"` (calendar-aware for `1mo` / `1y`) |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
 | `seed`        | `number \| string`         | random           | reproducible output |
 | `prices`      | `number[]`                 | none             | use your own close prices; `bars` becomes the array length |
@@ -206,16 +210,53 @@ Chart options:
 
 ```js
 {
-  width: 800,
-  height: 400,
+  width: 1000,             // default 1000
+  height: 500,             // default 500
   theme: 'light',          // 'light' | 'dark'
-  title: 'AAPL — daily',
+  title: 'AAPL — daily',   // pass '' to suppress the default symbol/name title
   showGrid: true,
   showAxes: true,
-  padding: { top: 24, right: 16, bottom: 36, left: 56 },
+  xTicks: 8,               // number of date labels on the X axis (default 8)
+  yTicks: 5,               // number of price labels on the Y axis (default 5)
+  padding: { top: 28, right: 24, bottom: 44, left: 64 },
   colors: { line: '#2563eb' } // override any single color
 }
 ```
+
+### `renderMultiLineChart(stocks, options) -> string`
+
+Render several companies on the same chart, with a built-in legend in the top-left. Series are plotted against actual timestamps, so stocks with different `startDate` values land at the right horizontal position.
+
+```js
+import { generateMarket, renderMultiLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const market = generateMarket({
+  bars: 365, interval: '1d', startDate: '2024-01-01', seed: 'compare',
+  stocks: [
+    { symbol: 'ALPHA' },
+    { symbol: 'BRAVO' },
+    { symbol: 'CHARL', color: '#dc2626' } // optional explicit color
+  ]
+});
+
+writeFileSync('compare.svg', renderMultiLineChart(market, {
+  title: 'My Portfolio — 2024',
+  mode: 'normalized', // or 'price' for raw values
+  area: true,         // add translucent gradient fills under each line
+  theme: 'dark'
+}));
+```
+
+Multi-line specific options on top of the standard chart options:
+
+| Option       | Type                          | Default        | Notes |
+|--------------|-------------------------------|----------------|-------|
+| `mode`       | `'normalized' \| 'price'`     | `'normalized'` | `'normalized'` rebases each series to 100 at its first bar (great for comparing relative performance regardless of price level). `'price'` keeps actual values. |
+| `area`       | `boolean`                     | `false`        | also draw a translucent gradient fill under each line |
+| `legend`     | `boolean`                     | `true`         | show the symbol legend in the top-left of the plot |
+
+Per-stock `color` (hex string) is honored if set on the `Stock` object; otherwise a built-in palette is used.
 
 ### `renderHtmlPage(marketOrStock, options) -> string`
 
@@ -392,7 +433,7 @@ Drop the seed and you get fresh random data every run.
 
 ## Recipes
 
-### Compare multiple companies on one chart
+### Compare multiple companies with gradient area fills
 
 ```js
 import { generateMarket, renderMultiLineChart } from 'stock-market-gen';
@@ -406,19 +447,19 @@ const market = generateMarket({
   stocks: [
     { symbol: 'ALPHA' },
     { symbol: 'BRAVO' },
-    { symbol: 'CHARL', color: '#dc2626' } // optional explicit color
+    { symbol: 'CHARL', color: '#dc2626' }
   ]
 });
 
 writeFileSync('compare.svg', renderMultiLineChart(market, {
-  width: 900,
-  height: 400,
   title: 'My Portfolio — 2024',
-  mode: 'normalized' // or 'price' for raw values
+  mode: 'price',
+  area: true,
+  theme: 'dark'
 }));
 ```
 
-`mode: 'normalized'` rebases each series to 100 at its first bar so series with very different price levels stay visually comparable. Use `mode: 'price'` when scales are similar.
+When `area: true`, fills are split into per-segment trapezoids. A series that's tall in one region but small in another only sits *under* its neighbours where it actually is taller — layering can flip across the chart, so a small spike won't get hidden by a big one elsewhere.
 
 ### Generate crypto instead of stocks
 
@@ -430,6 +471,18 @@ const coins = generateMarket({ count: 5, bars: 90, kind: 'crypto', seed: 'coins'
 ```
 
 Crypto uses log-distributed start prices (anywhere from sub-$1 to $50k+), higher drift and much higher volatility than stocks.
+
+### Sub-cent prices
+
+Prices below `$1` keep 4 decimals automatically; below `$0.01` they keep 6. Axis labels follow suit, so a chart of $0.0008 tokens stays readable.
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const tiny = generateStock({ kind: 'crypto', symbol: 'TINY', startPrice: 0.0008, bars: 120, seed: 'tiny' });
+writeFileSync('tiny.svg', renderLineChart(tiny, { theme: 'dark' }));
+```
 
 ### Just one chart
 

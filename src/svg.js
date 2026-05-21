@@ -184,6 +184,13 @@ function defaultTitle(stock) {
   return stock.name ? `${stock.symbol} — ${stock.name}` : stock.symbol;
 }
 
+// Resolve the title to render: an explicit empty string from the caller
+// suppresses the default (used by renderHtmlPage for cards that already show
+// the symbol/name in their own header).
+function resolveTitle(explicit, fallback) {
+  return explicit === undefined || explicit === null ? fallback : explicit;
+}
+
 function svgWrap(o, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${o.width} ${o.height}" width="${o.width}" height="${o.height}">` +
     `<rect width="${o.width}" height="${o.height}" fill="${o.colors.bg}"/>` +
@@ -219,7 +226,7 @@ export function renderLineChart(stock, options) {
   const body =
     buildAxes(o, plot, range, stock.bars) +
     `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
-    buildTitle({ ...o, title: o.title || defaultTitle(stock) });
+    buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
 }
@@ -249,7 +256,7 @@ export function renderAreaChart(stock, options) {
     buildAxes(o, plot, range, stock.bars) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
     `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
-    buildTitle({ ...o, title: o.title || defaultTitle(stock) });
+    buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
 }
@@ -268,10 +275,14 @@ export function renderBarChart(stock, options) {
 
   const slot = plot.w / Math.max(1, n);
   const tick = Math.max(1, Math.min(slot * 0.35, 6));
+  // Inset the X mapping by `tick` so the leftmost open-tick and the rightmost
+  // close-tick stay inside the plot area instead of overflowing into the axis.
+  const innerX = plot.x + tick;
+  const innerW = Math.max(0, plot.w - 2 * tick);
 
   const bars = stock.bars
     .map((b, i) => {
-      const x = xAt(plot, i, n);
+      const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
       const yHigh = yAt(plot, b.high, range);
       const yLow = yAt(plot, b.low, range);
       const yOpen = yAt(plot, b.open, range);
@@ -288,7 +299,7 @@ export function renderBarChart(stock, options) {
   const body =
     buildAxes(o, plot, range, stock.bars) +
     bars +
-    buildTitle({ ...o, title: o.title || defaultTitle(stock) });
+    buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
 }
@@ -307,10 +318,15 @@ export function renderCandlestickChart(stock, options) {
 
   const slot = plot.w / Math.max(1, n);
   const candleW = Math.max(1, slot * 0.6);
+  // Inset the X mapping by half a candle width so the first and last bodies
+  // sit fully inside the plot rectangle.
+  const inset = candleW / 2;
+  const innerX = plot.x + inset;
+  const innerW = Math.max(0, plot.w - 2 * inset);
 
   const candles = stock.bars
     .map((b, i) => {
-      const x = xAt(plot, i, n);
+      const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
       const yHigh = yAt(plot, b.high, range);
       const yLow = yAt(plot, b.low, range);
       const yOpen = yAt(plot, b.open, range);
@@ -329,7 +345,7 @@ export function renderCandlestickChart(stock, options) {
   const body =
     buildAxes(o, plot, range, stock.bars) +
     candles +
-    buildTitle({ ...o, title: o.title || defaultTitle(stock) });
+    buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
 }
@@ -347,8 +363,10 @@ export function renderCandlestickChart(stock, options) {
  *     - `'normalized'` — each series rebased to 100 at its first bar (default;
  *                        works regardless of price differences)
  *   When `area: true`, each series is also drawn as a translucent gradient
- *   filled down to the chart bottom. Series are painted from largest area to
- *   smallest at each X position so smaller series stay visible on top.
+ *   filled down to the chart bottom. The fill is split into per-segment
+ *   trapezoids and trapezoids are painted from tallest to shortest *locally*,
+ *   so a series that is small in one region but tall in another sits on top
+ *   of its neighbours only where it actually is smaller.
  *   Each stock can also carry a `color` field; otherwise a built-in palette is used.
  * @returns {string} SVG document
  */
@@ -412,36 +430,53 @@ export function renderMultiLineChart(stocks, options = {}) {
     }));
   }
 
-  // Painting order for areas: largest peak first, so smaller series sit on top.
-  // Ties broken by total area so that a tall+narrow series doesn't fully hide
-  // a fat+lower one underneath.
-  const areaOrder = [...series].sort((a, b) => {
-    const aMax = Math.max(...a.points.map((p) => p.value));
-    const bMax = Math.max(...b.points.map((p) => p.value));
-    if (bMax !== aMax) return bMax - aMax;
-    const aSum = a.points.reduce((s, p) => s + p.value, 0);
-    const bSum = b.points.reduce((s, p) => s + p.value, 0);
-    return bSum - aSum;
-  });
+  // Painting order for area segments: each pair of adjacent points becomes
+  // its own trapezoid, and trapezoids across all series are sorted by their
+  // local height (max of the two endpoint values) — biggest first. This way
+  // a series that is tall in one region but tiny in another is painted
+  // *under* its taller neighbours only where it actually is taller, instead
+  // of one global rank deciding for the whole chart.
+  let areas = '';
+  if (showArea) {
+    // One gradient <defs> per series, reused across segments.
+    const defs = series
+      .map((s, idx) => {
+        const id = `mlg-${idx}-${Math.abs(hashString(s.stock.symbol + s.color)).toString(36)}`;
+        s.gradientId = id;
+        return (
+          `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">` +
+          `<stop offset="0%" stop-color="${s.color}" stop-opacity="0.45"/>` +
+          `<stop offset="100%" stop-color="${s.color}" stop-opacity="0"/>` +
+          `</linearGradient>`
+        );
+      })
+      .join('');
 
-  const areas = showArea
-    ? areaOrder
-        .map((s, idx) => {
-          const id = `mlg-${idx}-${Math.abs(hashString(s.stock.symbol + s.color)).toString(36)}`;
-          const linePts = s.pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
-          const firstX = s.pixels[0].x.toFixed(2);
-          const lastX = s.pixels[s.pixels.length - 1].x.toFixed(2);
-          const polyPts = `${firstX},${baseY.toFixed(2)} ${linePts} ${lastX},${baseY.toFixed(2)}`;
-          return (
-            `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">` +
-            `<stop offset="0%" stop-color="${s.color}" stop-opacity="0.45"/>` +
-            `<stop offset="100%" stop-color="${s.color}" stop-opacity="0"/>` +
-            `</linearGradient></defs>` +
-            `<polygon points="${polyPts}" fill="url(#${id})" stroke="none"/>`
-          );
-        })
-        .join('')
-    : '';
+    const segments = [];
+    for (const s of series) {
+      for (let i = 0; i < s.pixels.length - 1; i++) {
+        const a = s.pixels[i];
+        const b = s.pixels[i + 1];
+        // Local height for this segment = the larger of the two endpoint
+        // values (in data units, before y-flip). Used purely as a paint
+        // order key.
+        const height = Math.max(s.points[i].value, s.points[i + 1].value);
+        segments.push({ a, b, height, gradientId: s.gradientId });
+      }
+    }
+    // Tallest segments painted first → smaller segments end up on top in the
+    // regions where they are smaller. Identical heights keep their original
+    // order, which is fine.
+    segments.sort((p, q) => q.height - p.height);
+
+    const polys = segments
+      .map(({ a, b, gradientId }) =>
+        `<polygon points="${a.x.toFixed(2)},${baseY.toFixed(2)} ${a.x.toFixed(2)},${a.y.toFixed(2)} ${b.x.toFixed(2)},${b.y.toFixed(2)} ${b.x.toFixed(2)},${baseY.toFixed(2)}" fill="url(#${gradientId})" stroke="none"/>`
+      )
+      .join('');
+
+    areas = `<defs>${defs}</defs>${polys}`;
+  }
 
   const lines = series
     .map((s) => {
@@ -501,7 +536,13 @@ export function renderMultiLineChart(stocks, options = {}) {
     areas +
     lines +
     legend +
-    buildTitle({ ...o, title: o.title || (mode === 'normalized' ? 'Comparison (rebased to 100)' : 'Comparison') });
+    buildTitle({
+      ...o,
+      title: resolveTitle(
+        o.title,
+        mode === 'normalized' ? 'Comparison (rebased to 100)' : 'Comparison'
+      )
+    });
 
   return svgWrap(o, body);
 }
