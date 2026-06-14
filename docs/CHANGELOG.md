@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.0 — 2026-06-14
+
+### Added
+- `generateNetWorth(options)` — generate a net worth time series for a person or entity. Uses Geometric Brownian Motion with wealth-accumulation defaults (low volatility, positive drift). Returns a `NetWorth` object with `name`, `startValue`, `interval`, and `bars: [{time, date, value}]`.
+- `renderNetWorthChart(netWorth, options)` — render a net worth series as a line+area SVG chart. Accepts the same `ChartOptions` as all other renderers (theme, events, size, etc.).
+- `toJSON` / `fromJSON` now support `NetWorth` objects. `fromJSON` detects net worth data via the `_type: 'networth'` field and round-trips it correctly.
+- `events` option on all chart renderers (`renderLineChart`, `renderAreaChart`, `renderBarChart`, `renderCandlestickChart`, `renderMultiLineChart`, `renderNetWorthChart`). Pass an array of `{ date, label, color? }` objects to annotate specific dates with a full-height dashed vertical line and a short label displayed above the plot area.
+
+### Changed
+- Default chart size increased to **1200 × 600** (was 1000 × 500) for better readability and more room for date labels.
+- When `events` are present, `padding.top` is automatically increased by 20 px to ensure event labels don't overlap the chart title.
+
 ## 1.2.3 — 2026-05-21
 
 ### Fixed

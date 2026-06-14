@@ -7,6 +7,7 @@ import {
   // data
   generateStock,
   generateMarket,
+  generateNetWorth,
   toJSON,
   fromJSON,
 
@@ -17,6 +18,7 @@ import {
   renderBarChart,
   renderCandlestickChart,
   renderMultiLineChart,
+  renderNetWorthChart,
 
   // pages
   renderHtmlPage,
@@ -115,27 +117,75 @@ Symbols are kept unique within the market. If you supply some explicit symbols a
 
 ---
 
-### `toJSON(stockOrMarket, indent?) -> string`
+### `generateNetWorth(options) -> NetWorth`
 
-Serialise a stock or market to a JSON string. Thin wrapper around `JSON.stringify` for discoverability — the output is already plain data.
+Generate a net worth time series for a person or entity. Uses Geometric Brownian Motion with wealth-accumulation defaults (positive drift, lower volatility).
 
 ```js
-toJSON(stock);          // pretty (2-space indent)
-toJSON(market, 0);      // compact
+const nw = generateNetWorth({ name: 'Alice', startValue: 50000, bars: 120, interval: '1mo', seed: 'alice' });
+```
+
+| Option        | Type                       | Default               | Notes |
+|---------------|----------------------------|-----------------------|-------|
+| `name`        | `string`                   | none                  | label for this series |
+| `startValue`  | `number`                   | random 10k–5M (log)   | starting net worth |
+| `drift`       | `number`                   | random +2–15%/yr      | annualised |
+| `volatility`  | `number`                   | random 5–25%/yr       | annualised |
+| `bars`        | `number`                   | `100`                 | positive integer |
+| `interval`    | `number \| string`         | `"1mo"`               | bar size |
+| `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
+| `seed`        | `number \| string`         | random                | reproducible output |
+| `values`      | `number[]`                 | none                  | custom net worth values, one per bar |
+
+#### Returns
+
+A `NetWorth` object:
+
+```ts
+{
+  name: string | null;
+  startValue: number;
+  interval: number;            // milliseconds
+  bars: NetWorthBar[];
+  _type: 'networth';           // used by fromJSON for type detection
+}
+```
+
+Where `NetWorthBar` is:
+
+```ts
+{
+  time: number;                // unix epoch in ms
+  date: string;                // ISO 8601
+  value: number;
+}
 ```
 
 ---
 
-### `fromJSON(input) -> Stock | Stock[]`
+### `toJSON(stockOrMarket, indent?) -> string`
 
-Parse and validate a JSON string (or already-parsed object/array). Returns the same shape it received: pass an object, get a stock; pass an array, get a market.
+Serialise a stock, market, or net worth object to a JSON string. Thin wrapper around `JSON.stringify` for discoverability — the output is already plain data.
 
 ```js
-const stock  = fromJSON(readFileSync('stock.json', 'utf8'));
-const market = fromJSON(readFileSync('market.json', 'utf8'));
+toJSON(stock);          // pretty (2-space indent)
+toJSON(market, 0);      // compact
+toJSON(netWorth);       // net worth round-trips cleanly
 ```
 
-Validation rejects negative prices, malformed bars, `high < low`, etc.
+---
+
+### `fromJSON(input) -> Stock | Stock[] | NetWorth`
+
+Parse and validate a JSON string (or already-parsed object/array). Automatically detects `NetWorth` objects via `_type: 'networth'`. Returns the same shape it received.
+
+```js
+const stock   = fromJSON(readFileSync('stock.json', 'utf8'));
+const market  = fromJSON(readFileSync('market.json', 'utf8'));
+const netWorth = fromJSON(readFileSync('networth.json', 'utf8'));
+```
+
+Validation rejects negative prices/values, malformed bars, `high < low`, etc.
 
 ---
 
@@ -157,6 +207,20 @@ renderChart(stock, 'candlestick', { theme: 'dark' });
 ### `renderCandlestickChart(stock, options?) -> string`
 
 Dedicated renderers for each chart type. Functionally equivalent to calling `renderChart` with the matching string.
+
+### `renderNetWorthChart(netWorth, options?) -> string`
+
+Render a `NetWorth` object as a line+area SVG chart. Accepts all standard [chart options](#chart-options) including `events`.
+
+```js
+renderNetWorthChart(nw, { theme: 'dark', events: [{ date: '2008-09-15', label: 'Crisis' }] });
+```
+
+The Y-axis shows net worth values formatted like prices. The default title is `"<name> — Net Worth"` (or just `"Net Worth"` when `name` is null).
+
+See [Net worth guide](guides/net-worth.md) for usage details.
+
+---
 
 ### `renderMultiLineChart(stocks, options?) -> string`
 
@@ -184,8 +248,8 @@ Shared by every chart renderer:
 
 ```js
 {
-  width: 1000,                                  // default 1000
-  height: 500,                                  // default 500
+  width: 1200,                                  // default 1200
+  height: 600,                                  // default 600
   theme: 'light',                               // 'light' | 'dark'
   title: 'NOVA — daily',                        // pass '' to suppress default
   showGrid: true,
@@ -193,9 +257,31 @@ Shared by every chart renderer:
   xTicks: 8,                                    // X-axis date label count
   yTicks: 5,                                    // Y-axis price label count
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
-  colors: { line: '#2563eb' }                   // override any single color
+  colors: { line: '#2563eb' },                  // override any single color
+  events: [                                     // annotate specific dates
+    { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
+    { date: '2024-07-01', label: 'Split' }      // color defaults to theme line color
+  ]
 }
 ```
+
+### Events
+
+All renderers accept an `events` array. Each entry is a `ChartEvent`:
+
+```ts
+type ChartEvent = {
+  date: Date | number | string;  // any value parseable by new Date()
+  label: string;                 // short text shown at the top of the chart
+  color?: string;                // CSS color; defaults to the theme's line color
+};
+```
+
+Each event renders as:
+- a full-height dashed vertical line at that date
+- a short label above the plot area
+
+When events are present, `padding.top` is automatically increased by 20 px so labels don't overlap the chart title. Events outside the chart's time domain are silently ignored.
 
 ### Color keys
 
@@ -294,6 +380,26 @@ type Stock = {
   bars: Bar[];
 };
 
+type NetWorthBar = {
+  time: number;
+  date: string;
+  value: number;
+};
+
+type NetWorth = {
+  name: string | null;
+  startValue: number;
+  interval: number;
+  bars: NetWorthBar[];
+  _type: 'networth';
+};
+
+type ChartEvent = {
+  date: Date | number | string;
+  label: string;
+  color?: string;
+};
+
 type ChartOptions = {
   width?: number;
   height?: number;
@@ -308,6 +414,7 @@ type ChartOptions = {
     bg: string; grid: string; text: string; axis: string;
     line: string; area: string; up: string; down: string;
   }>;
+  events?: ChartEvent[];
 };
 ```
 

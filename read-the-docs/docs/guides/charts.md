@@ -86,12 +86,12 @@ Available keys: `bg`, `grid`, `text`, `axis`, `line`, `area`, `up`, `down`.
 
 ## Sizing and padding
 
-Defaults are 1000 × 500 with a generous padding so price labels and date strings fit cleanly.
+Defaults are 1200 × 600 with generous padding so price labels and date strings fit cleanly.
 
 ```js
 renderLineChart(stock, {
-  width: 1400,
-  height: 600,
+  width: 1600,
+  height: 700,
   padding: { top: 32, right: 32, bottom: 56, left: 80 }
 });
 ```
@@ -157,8 +157,43 @@ That means you can:
 - pipe it through a converter to PNG (using something like `sharp` or `librsvg`)
 - send it over an API as `Content-Type: image/svg+xml`
 
+## Event markers
+
+Annotate specific dates with a full-height dashed vertical line and a short label at the top of the chart. Useful for earnings reports, splits, macro events, or any milestone you want to highlight.
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 365, interval: '1d', startDate: '2024-01-01', seed: 'ev' });
+
+writeFileSync('events.svg', renderLineChart(stock, {
+  events: [
+    { date: '2024-02-14', label: 'Q4 Earnings', color: '#f59e0b' },
+    { date: '2024-05-20', label: '2-for-1 Split', color: '#7c3aed' },
+    { date: '2024-10-01', label: 'CEO change' }  // uses theme line color
+  ]
+}));
+```
+
+Each entry in the `events` array is a `ChartEvent`:
+
+| Field   | Type                       | Required | Notes |
+|---------|----------------------------|----------|-------|
+| `date`  | `Date \| number \| string` | yes      | any value accepted by `new Date()` |
+| `label` | `string`                   | yes      | short text; keep it brief |
+| `color` | `string`                   | no       | CSS color; defaults to the theme's line color |
+
+Behaviour:
+- Events are drawn as dashed lines (`4 3` dash pattern) spanning the full plot height
+- Labels appear above the plot area, centred on the event x-position
+- When events are present, `padding.top` is automatically increased by 20 px to prevent overlap with the chart title
+- Events outside the chart's time domain are silently ignored
+- Works on all renderers: `renderLineChart`, `renderAreaChart`, `renderBarChart`, `renderCandlestickChart`, `renderMultiLineChart`, and `renderNetWorthChart`
+
 ## See also
 
 - [Multi-line comparison](multi-line.md) — multiple companies on one chart.
+- [Net worth](net-worth.md) — generate and render people’s net worth data.
 - [HTML page builder](html-page.md) — full dashboard with clickable cards.
 - [API reference](../api-reference.md#chart-options) — every chart option in one place.

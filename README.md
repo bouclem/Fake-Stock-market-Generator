@@ -1,6 +1,6 @@
 # stock-market-gen
 
-Generate realistic fake stock market data plus SVG charts and standalone HTML pages. Pure JS, zero dependencies, works in Node and the browser.
+Generate realistic fake stock market and net worth data plus SVG charts and standalone HTML pages. Pure JS, zero dependencies, works in Node and the browser.
 
 A modern, more capable replacement for the old `fake-stock-market-generator` package.
 
@@ -31,11 +31,12 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 
 - single stocks or whole markets
 - OHLCV bars (open, high, low, close, volume)
+- **net worth time series** for a person or entity (`generateNetWorth`)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
 - pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1y`)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
-- save to JSON and reload it later — output is plain data
+- save to JSON and reload it later — output is plain data (net worth included)
 - pass a `stocks` array to define each company yourself
 - compare several companies on a single chart with `renderMultiLineChart` — including translucent gradient fills under each line
 - sub-cent precision: prices below `$1` keep 4 decimals (below `$0.01` keeps 6), so crypto-style series stay readable
@@ -47,8 +48,13 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - `area` — line plus filled area
 - `bar` — OHLC bar (tick-left, tick-right)
 - `candlestick` — classic candles, green up / red down
+- `renderNetWorthChart` — dedicated line+area chart for net worth series
 
 All renderers return a complete SVG string. Save it to a file, drop it into HTML, or pipe it anywhere.
+
+Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart.
+
+Default chart size is **1200 × 600** for better readability and more room for date labels.
 
 ## Customize anything
 
@@ -202,16 +208,54 @@ writeFileSync(
 
 `mode: 'normalized'` (the default) is great for comparing relative performance — every line starts at 100. `mode: 'price'` keeps the actual values, so different starting points stay visible.
 
+### `generateNetWorth(options) -> NetWorth`
+
+Generate a net worth time series for a person or entity. Uses GBM with wealth-accumulation defaults (positive drift, low volatility). Returns `{ name, startValue, interval, bars: [{time, date, value}] }`.
+
+| Option        | Type                       | Default              | Notes |
+|---------------|----------------------------|----------------------|-------|
+| `name`        | `string`                   | none                 | label for this series |
+| `startValue`  | `number`                   | random 10k–5M        | starting net worth |
+| `drift`       | `number`                   | random +2–15%/yr     | annualised |
+| `volatility`  | `number`                   | random 5–25%/yr      | annualised |
+| `bars`        | `number`                   | `100`                | data points |
+| `interval`    | `number \| string`         | `"1mo"`              | default monthly |
+| `startDate`   | `Date \| number \| string` | `now - bars*interval`| |
+| `seed`        | `number \| string`         | random               | reproducible |
+| `values`      | `number[]`                 | none                 | custom net worth values |
+
+```js
+import { generateNetWorth, renderNetWorthChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const nw = generateNetWorth({
+  name: 'Alice',
+  startValue: 50000,
+  bars: 120,
+  interval: '1mo',
+  startDate: '2015-01-01',
+  seed: 'alice'
+});
+
+writeFileSync('alice.svg', renderNetWorthChart(nw, { theme: 'dark' }));
+```
+
+`toJSON` / `fromJSON` work with net worth objects too — they round-trip cleanly.
+
 ### `renderChart(stock, type, options)`
 
 `type` is `"line"`, `"area"`, `"bar"` or `"candlestick"`. Or call the dedicated renderers: `renderLineChart`, `renderAreaChart`, `renderBarChart`, `renderCandlestickChart`.
+
+### `renderNetWorthChart(netWorth, options) -> string`
+
+Render a `NetWorth` object as a line+area SVG chart. Accepts the same options as all other renderers.
 
 Chart options:
 
 ```js
 {
-  width: 1000,             // default 1000
-  height: 500,             // default 500
+  width: 1200,             // default 1200
+  height: 600,             // default 600
   theme: 'light',          // 'light' | 'dark'
   title: 'AAPL — daily',   // pass '' to suppress the default symbol/name title
   showGrid: true,
@@ -219,8 +263,30 @@ Chart options:
   xTicks: 8,               // number of date labels on the X axis (default 8)
   yTicks: 5,               // number of price labels on the Y axis (default 5)
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
-  colors: { line: '#2563eb' } // override any single color
+  colors: { line: '#2563eb' }, // override any single color
+  events: [                // annotate specific dates
+    { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
+    { date: '2024-07-01', label: 'Split' }
+  ]
 }
+```
+
+#### Events
+
+All chart renderers accept an `events` option — an array of `{ date, label, color? }` objects. Each event gets a full-height dashed vertical line and a short label at the top of the chart. The chart's top padding is automatically increased to keep labels clear of the title.
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 365, interval: '1d', startDate: '2024-01-01', seed: 'ev' });
+writeFileSync('events.svg', renderLineChart(stock, {
+  events: [
+    { date: '2024-02-14', label: 'Earnings', color: '#f59e0b' },
+    { date: '2024-05-20', label: 'Split',    color: '#7c3aed' },
+    { date: '2024-10-01', label: 'CEO change' }
+  ]
+}));
 ```
 
 ### `renderMultiLineChart(stocks, options) -> string`
@@ -430,8 +496,6 @@ const b = generateStock({ bars: 50, seed: 'pinned' });
 ```
 
 Drop the seed and you get fresh random data every run.
-
-## Recipes
 
 ### Compare multiple companies with gradient area fills
 

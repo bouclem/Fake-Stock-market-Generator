@@ -351,14 +351,25 @@ export function fromJSON(input) {
       if (!entry || typeof entry !== 'object' || !Array.isArray(entry.bars)) {
         throw new Error(`fromJSON: array entry ${i} is missing a "bars" array`);
       }
-      return rebuildOne(entry);
+      return entry._type === 'networth' ? rebuildNetWorth(entry) : rebuildOne(entry);
     });
   }
 
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.bars)) {
     throw new Error('fromJSON: expected an object with a "bars" array, or an array of such objects');
   }
+  if (obj._type === 'networth') return rebuildNetWorth(obj);
   return rebuildOne(obj);
+}
+
+function rebuildNetWorth(obj) {
+  return generateNetWorth({
+    name: obj.name ?? undefined,
+    startValue: obj.startValue,
+    interval: obj.interval,
+    values: obj.bars.map((b) => b.value),
+    startDate: obj.bars[0]?.time
+  });
 }
 
 function rebuildOne(obj) {
@@ -372,6 +383,144 @@ function rebuildOne(obj) {
     interval: obj.interval,
     ohlc: obj.bars
   });
+}
+
+/**
+ * @typedef {Object} NetWorthBar
+ * @property {number} time   - Unix epoch in milliseconds
+ * @property {string} date   - ISO 8601 timestamp
+ * @property {number} value  - Net worth value at this point in time
+ */
+
+/**
+ * @typedef {Object} NetWorth
+ * @property {string|null} name
+ * @property {number} startValue
+ * @property {number} interval - milliseconds between bars
+ * @property {NetWorthBar[]} bars
+ */
+
+/**
+ * @typedef {Object} GenerateNetWorthOptions
+ * @property {string} [name]                   - Label for this net worth series (e.g. "John Doe")
+ * @property {number} [startValue]             - Starting net worth (default: 10,000–5,000,000)
+ * @property {number} [drift]                  - Annualised drift (default: random +2% to +15%)
+ * @property {number} [volatility]             - Annualised volatility (default: random 5%–25%)
+ * @property {number} [bars]                   - Number of data points (default: 100)
+ * @property {number|string} [interval]        - Bar size; ms or "1d"/"1w"/"1mo"/"1y" etc.
+ * @property {Date|number|string} [startDate]  - First bar timestamp
+ * @property {number|string} [seed]            - Reproducible output
+ * @property {number[]} [values]               - Custom net worth values, one per bar
+ */
+
+const NET_WORTH_DEFAULTS = {
+  bars: 100,
+  interval: '1mo'
+};
+
+/**
+ * Generate a net worth time series for a person (or entity).
+ * Uses Geometric Brownian Motion just like stock prices, but defaults
+ * to lower volatility and positive drift to simulate wealth accumulation.
+ * @param {GenerateNetWorthOptions} [options]
+ * @returns {NetWorth}
+ */
+export function generateNetWorth(options = {}) {
+  const opts = { ...NET_WORTH_DEFAULTS, ...options };
+
+  if (opts.name !== undefined && opts.name !== null && typeof opts.name !== 'string') {
+    throw new Error(`"name" must be a string, got ${typeOf(opts.name)}`);
+  }
+  if (opts.startValue !== undefined && (!Number.isFinite(opts.startValue) || opts.startValue <= 0)) {
+    throw new Error(`"startValue" must be a positive number, got ${opts.startValue}`);
+  }
+  if (opts.drift !== undefined && !Number.isFinite(opts.drift)) {
+    throw new Error(`"drift" must be a finite number, got ${opts.drift}`);
+  }
+  if (opts.volatility !== undefined && (!Number.isFinite(opts.volatility) || opts.volatility < 0)) {
+    throw new Error(`"volatility" must be a non-negative number, got ${opts.volatility}`);
+  }
+  if (opts.startDate !== undefined) {
+    const t = new Date(opts.startDate).getTime();
+    if (!Number.isFinite(t)) {
+      throw new Error(`"startDate" is not a valid date: ${opts.startDate}`);
+    }
+  }
+  if (opts.values !== undefined) {
+    if (!Array.isArray(opts.values) || opts.values.length < 1) {
+      throw new Error(`"values" must be a non-empty array of numbers`);
+    }
+    for (let i = 0; i < opts.values.length; i++) {
+      if (!isPositiveNumber(opts.values[i])) {
+        throw new Error(`"values[${i}]" must be a positive finite number, got ${opts.values[i]}`);
+      }
+    }
+  }
+
+  const rng = createRng(opts.seed);
+  const intervalSpec = parseIntervalSpec(opts.interval);
+  const intervalMs = intervalSpec.ms;
+
+  const barCount = opts.values ? opts.values.length : (
+    (!Number.isInteger(opts.bars) || opts.bars < 1)
+      ? (() => { throw new Error(`"bars" must be a positive integer, got ${opts.bars}`); })()
+      : opts.bars
+  );
+
+  const name = opts.name ?? null;
+
+  const startTime =
+    opts.startDate !== undefined
+      ? new Date(opts.startDate).getTime()
+      : Date.now() - barCount * intervalMs;
+
+  // Start value: log-uniform between 10k and 5M if not given
+  let startValue;
+  if (opts.startValue !== undefined) {
+    startValue = opts.startValue;
+  } else {
+    const logMin = Math.log(10_000);
+    const logMax = Math.log(5_000_000);
+    startValue = round2(Math.exp(logMin + rng.next() * (logMax - logMin)));
+  }
+
+  const drift = opts.drift ?? (0.02 + rng.next() * 0.13);
+  const volatility = opts.volatility ?? (0.05 + rng.next() * 0.20);
+  const dt = intervalMs / YEAR_MS;
+  const drift2 = (drift - (volatility * volatility) / 2) * dt;
+  const diffusion = volatility * Math.sqrt(dt);
+
+  const bars = new Array(barCount);
+
+  if (opts.values) {
+    for (let i = 0; i < barCount; i++) {
+      const time = stepTime(startTime, intervalSpec, i);
+      bars[i] = {
+        time,
+        date: new Date(time).toISOString(),
+        value: round2(opts.values[i])
+      };
+    }
+  } else {
+    let value = startValue;
+    for (let i = 0; i < barCount; i++) {
+      const time = stepTime(startTime, intervalSpec, i);
+      bars[i] = {
+        time,
+        date: new Date(time).toISOString(),
+        value: round2(value)
+      };
+      value = Math.max(PRICE_FLOOR, value * Math.exp(drift2 + diffusion * rng.gauss()));
+    }
+  }
+
+  return {
+    name,
+    startValue: round2(startValue),
+    interval: intervalMs,
+    bars,
+    _type: 'networth'
+  };
 }
 
 /**

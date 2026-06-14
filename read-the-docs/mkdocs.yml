@@ -1,5 +1,5 @@
 site_name: stock-market-gen
-site_description: Generate realistic fake stock market data plus SVG charts and standalone HTML pages. Pure JS, zero dependencies.
+site_description: Generate realistic fake stock market and net worth data plus SVG charts and standalone HTML pages. Pure JS, zero dependencies.
 site_author: stock-market-gen contributors
 repo_name: stock-market-gen
 docs_dir: docs
@@ -79,6 +79,7 @@ nav:
       - guides/generating.md
       - guides/custom-data.md
       - guides/charts.md
+      - guides/net-worth.md
       - guides/multi-line.md
       - guides/html-page.md
       - guides/intervals.md

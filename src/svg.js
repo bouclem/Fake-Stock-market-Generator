@@ -26,8 +26,8 @@ const THEMES = {
 };
 
 const DEFAULTS = {
-  width: 1000,
-  height: 500,
+  width: 1200,
+  height: 600,
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
   theme: 'light',
   title: '',
@@ -38,6 +38,13 @@ const DEFAULTS = {
 };
 
 /**
+ * @typedef {Object} ChartEvent
+ * @property {Date|number|string} date  - Timestamp of the event
+ * @property {string} label             - Short label shown at top of chart
+ * @property {string} [color]           - Override line/label color (defaults to theme accent)
+ */
+
+/**
  * @typedef {Object} ChartOptions
  * @property {number} [width]
  * @property {number} [height]
@@ -46,8 +53,9 @@ const DEFAULTS = {
  * @property {string} [title]
  * @property {boolean} [showGrid]
  * @property {boolean} [showAxes]
- * @property {number} [xTicks]   - Number of date labels on the X axis (default: 5)
- * @property {number} [yTicks]   - Number of price labels on the Y axis (default: 5)
+ * @property {number} [xTicks]     - Number of date labels on the X axis (default: 8)
+ * @property {number} [yTicks]     - Number of price labels on the Y axis (default: 5)
+ * @property {ChartEvent[]} [events] - Annotate specific dates with a full-height marker and top label
  * @property {Partial<typeof THEMES.light>} [colors] - Override individual colors
  */
 
@@ -191,6 +199,59 @@ function resolveTitle(explicit, fallback) {
   return explicit === undefined || explicit === null ? fallback : explicit;
 }
 
+const EVENT_TOP_PAD = 20;
+
+/**
+ * Resolve event timestamps and clamp them to the chart's time domain.
+ * Returns an array of { x, label, color } pixel-space records.
+ */
+function resolveEvents(events, o, plot, tMin, tMax, xForTime) {
+  if (!events || events.length === 0) return [];
+  const fallbackColor = o.colors.line || '#2563eb';
+  return events
+    .map((ev) => {
+      const t = new Date(ev.date).getTime();
+      if (!Number.isFinite(t)) return null;
+      const x = xForTime ? xForTime(t) : plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+      if (x < plot.x - 1 || x > plot.x + plot.w + 1) return null;
+      return {
+        x,
+        label: String(ev.label || ''),
+        color: ev.color || fallbackColor
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Build the SVG for event markers: full-height dashed lines + top labels.
+ * Assumes padding.top has been increased by EVENT_TOP_PAD before calling.
+ */
+function buildEvents(resolvedEvents, plot, o) {
+  if (!resolvedEvents || resolvedEvents.length === 0) return '';
+  return resolvedEvents
+    .map((ev) => {
+      const x = ev.x.toFixed(2);
+      const lineTop = plot.y.toFixed(2);
+      const lineBot = (plot.y + plot.h).toFixed(2);
+      // Label sits above plot area (inside the extra EVENT_TOP_PAD space)
+      const labelY = (plot.y - 6).toFixed(2);
+      return (
+        `<line x1="${x}" y1="${lineTop}" x2="${x}" y2="${lineBot}" stroke="${ev.color}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.8"/>` +
+        `<text x="${x}" y="${labelY}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="${ev.color}">${escapeXml(ev.label)}</text>`
+      );
+    })
+    .join('');
+}
+
+/**
+ * Patch options to add extra top padding when events are present.
+ */
+function withEventPadding(o, hasEvents) {
+  if (!hasEvents) return o;
+  return { ...o, padding: { ...o.padding, top: o.padding.top + EVENT_TOP_PAD } };
+}
+
 function svgWrap(o, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${o.width} ${o.height}" width="${o.width}" height="${o.height}">` +
     `<rect width="${o.width}" height="${o.height}" fill="${o.colors.bg}"/>` +
@@ -215,16 +276,23 @@ function yAt(plot, value, range) {
  * @returns {string} SVG document
  */
 export function renderLineChart(stock, options) {
-  const o = resolve(options);
+  const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
   const range = priceRange(stock.bars, false);
 
+  const n = stock.bars.length;
+  const tMin = stock.bars[0].time;
+  const tMax = stock.bars[n - 1].time;
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
+
   const points = stock.bars
-    .map((b, i) => `${xAt(plot, i, stock.bars.length).toFixed(2)},${yAt(plot, b.close, range).toFixed(2)}`)
+    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.close, range).toFixed(2)}`)
     .join(' ');
 
   const body =
     buildAxes(o, plot, range, stock.bars) +
+    buildEvents(evs, plot, o) +
     `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -238,11 +306,16 @@ export function renderLineChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderAreaChart(stock, options) {
-  const o = resolve(options);
+  const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
   const range = priceRange(stock.bars, false);
 
   const n = stock.bars.length;
+  const tMin = stock.bars[0].time;
+  const tMax = stock.bars[n - 1].time;
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
+
   const linePoints = stock.bars
     .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.close, range).toFixed(2)}`)
     .join(' ');
@@ -254,6 +327,7 @@ export function renderAreaChart(stock, options) {
 
   const body =
     buildAxes(o, plot, range, stock.bars) +
+    buildEvents(evs, plot, o) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
     `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
@@ -268,7 +342,7 @@ export function renderAreaChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderBarChart(stock, options) {
-  const o = resolve(options);
+  const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
   const range = priceRange(stock.bars, true);
   const n = stock.bars.length;
@@ -296,8 +370,15 @@ export function renderBarChart(stock, options) {
     })
     .join('');
 
+  const n2 = stock.bars.length;
+  const tMin2 = stock.bars[0].time;
+  const tMax2 = stock.bars[n2 - 1].time;
+  const xForTime2 = (t) => plot.x + ((t - tMin2) / Math.max(1, tMax2 - tMin2)) * plot.w;
+  const evs2 = resolveEvents(o.events, o, plot, tMin2, tMax2, xForTime2);
+
   const body =
     buildAxes(o, plot, range, stock.bars) +
+    buildEvents(evs2, plot, o) +
     bars +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -311,7 +392,7 @@ export function renderBarChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderCandlestickChart(stock, options) {
-  const o = resolve(options);
+  const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
   const range = priceRange(stock.bars, true);
   const n = stock.bars.length;
@@ -342,8 +423,15 @@ export function renderCandlestickChart(stock, options) {
     })
     .join('');
 
+  const nc = stock.bars.length;
+  const tMinC = stock.bars[0].time;
+  const tMaxC = stock.bars[nc - 1].time;
+  const xForTimeC = (t) => plot.x + ((t - tMinC) / Math.max(1, tMaxC - tMinC)) * plot.w;
+  const evsC = resolveEvents(o.events, o, plot, tMinC, tMaxC, xForTimeC);
+
   const body =
     buildAxes(o, plot, range, stock.bars) +
+    buildEvents(evsC, plot, o) +
     candles +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -374,7 +462,7 @@ export function renderMultiLineChart(stocks, options = {}) {
   if (!Array.isArray(stocks) || stocks.length === 0) {
     throw new Error('renderMultiLineChart: stocks must be a non-empty array');
   }
-  const o = resolve(options);
+  const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
   const mode = options.mode || 'normalized';
   const showLegend = options.legend !== false;
@@ -531,8 +619,12 @@ export function renderMultiLineChart(stocks, options = {}) {
       items;
   }
 
+  const xForTimeML = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evsML = resolveEvents(o.events, o, plot, tMin, tMax, xForTimeML);
+
   const body =
     buildAxes(o, plot, range, axisBars) +
+    buildEvents(evsML, plot, o) +
     areas +
     lines +
     legend +
@@ -565,4 +657,59 @@ export function renderChart(stock, type = 'line', options) {
     default:
       throw new Error(`Unknown chart type: "${type}". Use "line", "area", "bar" or "candlestick".`);
   }
+}
+
+/**
+ * Render a net worth time series as a line+area chart.
+ * @param {import('./generator.js').NetWorth} netWorth
+ * @param {ChartOptions} [options]
+ * @returns {string} SVG document
+ */
+export function renderNetWorthChart(netWorth, options) {
+  if (!netWorth || !Array.isArray(netWorth.bars) || netWorth.bars.length === 0) {
+    throw new Error('renderNetWorthChart: expected a NetWorth object with a non-empty bars array');
+  }
+
+  const o = withEventPadding(resolve(options), options?.events?.length);
+  const plot = plotArea(o);
+
+  const values = netWorth.bars.map((b) => b.value);
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  for (const v of values) {
+    if (v < vMin) vMin = v;
+    if (v > vMax) vMax = v;
+  }
+  if (vMin === vMax) { vMin -= 1; vMax += 1; }
+  const vPad = (vMax - vMin) * 0.05;
+  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+
+  const n = netWorth.bars.length;
+  const tMin = netWorth.bars[0].time;
+  const tMax = netWorth.bars[n - 1].time;
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
+
+  // Synthetic axis bars using the actual timestamps
+  const axisBars = netWorth.bars;
+
+  const linePoints = netWorth.bars
+    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.value, range).toFixed(2)}`)
+    .join(' ');
+
+  const firstX = xAt(plot, 0, n).toFixed(2);
+  const lastX = xAt(plot, n - 1, n).toFixed(2);
+  const baseY = (plot.y + plot.h).toFixed(2);
+  const areaPoints = `${firstX},${baseY} ${linePoints} ${lastX},${baseY}`;
+
+  const defaultLabel = netWorth.name ? `${netWorth.name} — Net Worth` : 'Net Worth';
+
+  const body =
+    buildAxes(o, plot, range, axisBars) +
+    buildEvents(evs, plot, o) +
+    `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
+    `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    buildTitle({ ...o, title: resolveTitle(o.title, defaultLabel) });
+
+  return svgWrap(o, body);
 }
