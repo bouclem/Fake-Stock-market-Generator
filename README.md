@@ -32,11 +32,12 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - single stocks or whole markets
 - OHLCV bars (open, high, low, close, volume)
 - **net worth time series** for a person or entity (`generateNetWorth`)
+- **company total worth** via `sharesOutstanding` — each bar gets a `worth` field (`close × shares`)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
 - pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1y`)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
-- save to JSON and reload it later — output is plain data (net worth included)
+- save to JSON and reload it later — output is plain data (net worth + worth fields included)
 - pass a `stocks` array to define each company yourself
 - compare several companies on a single chart with `renderMultiLineChart` — including translucent gradient fills under each line
 - sub-cent precision: prices below `$1` keep 4 decimals (below `$0.01` keeps 6), so crypto-style series stay readable
@@ -52,7 +53,9 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 
 All renderers return a complete SVG string. Save it to a file, drop it into HTML, or pipe it anywhere.
 
-Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart.
+Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart. Load events from a separate `.json` file with `loadEvents()`.
+
+All single-stock renderers support `valueMode: 'worth'` to plot total company valuation instead of per-share price.
 
 Default chart size is **1200 × 600** for better readability and more room for date labels.
 
@@ -241,6 +244,40 @@ writeFileSync('alice.svg', renderNetWorthChart(nw, { theme: 'dark' }));
 ```
 
 `toJSON` / `fromJSON` work with net worth objects too — they round-trip cleanly.
+
+### `sharesOutstanding` and company worth
+
+Pass `sharesOutstanding` to `generateStock()` and every bar gets a `worth` field:
+
+```js
+const stock = generateStock({
+  symbol: 'NOVA',
+  sharesOutstanding: 50_000_000,
+  startPrice: 250,
+  bars: 365,
+  interval: '1d',
+  seed: 'nova'
+});
+
+console.log(stock.bars[0].worth); // ~12.5B (250 * 50M)
+```
+
+Render with `valueMode: 'worth'` to plot the valuation instead of the price:
+
+```js
+writeFileSync('nova-worth.svg', renderAreaChart(stock, { valueMode: 'worth', theme: 'dark' }));
+```
+
+### `loadEvents(source)` / `loadEventsSync(source)`
+
+Normalise the `events` option from any source — array, `.json` file path, single object, or envelope:
+
+```js
+const events = loadEvents('milestones.json');
+writeFileSync('chart.svg', renderLineChart(stock, { events }));
+```
+
+The JSON file can be a plain array or an envelope `{ name, events: [...] }`. `loadEvents` also accepts an array (passthrough), a single event object, or `null`/`undefined` (returns `[]`).
 
 ### `renderChart(stock, type, options)`
 

@@ -1,6 +1,7 @@
 // Public API.
 
 export { generateStock, generateMarket, generateNetWorth, toJSON, fromJSON } from './generator.js';
+export { loadEvents, loadEventsSync } from './events.js';
 export {
   renderChart,
   renderLineChart,

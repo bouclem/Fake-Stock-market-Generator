@@ -56,6 +56,8 @@ const DEFAULTS = {
  * @property {number} [xTicks]     - Number of date labels on the X axis (default: 8)
  * @property {number} [yTicks]     - Number of price labels on the Y axis (default: 5)
  * @property {ChartEvent[]} [events] - Annotate specific dates with a full-height marker and top label
+ * @property {'price'|'worth'} [valueMode] - What to plot: 'price' (default) uses OHLC close/open/high/low;
+ *   'worth' uses bar.worth (close × sharesOutstanding). Requires sharesOutstanding on the stock.
  * @property {Partial<typeof THEMES.light>} [colors] - Override individual colors
  */
 
@@ -278,7 +280,10 @@ function yAt(plot, value, range) {
 export function renderLineChart(stock, options) {
   const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
-  const range = priceRange(stock.bars, false);
+  const worthMode = o.valueMode === 'worth';
+  if (worthMode) _assertWorth(stock);
+  const getValue = worthMode ? (b) => b.worth : (b) => b.close;
+  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, false);
 
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
@@ -287,7 +292,7 @@ export function renderLineChart(stock, options) {
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const points = stock.bars
-    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.close, range).toFixed(2)}`)
+    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
     .join(' ');
 
   const body =
@@ -308,7 +313,10 @@ export function renderLineChart(stock, options) {
 export function renderAreaChart(stock, options) {
   const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
-  const range = priceRange(stock.bars, false);
+  const worthMode = o.valueMode === 'worth';
+  if (worthMode) _assertWorth(stock);
+  const getValue = worthMode ? (b) => b.worth : (b) => b.close;
+  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, false);
 
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
@@ -317,7 +325,7 @@ export function renderAreaChart(stock, options) {
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const linePoints = stock.bars
-    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.close, range).toFixed(2)}`)
+    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
     .join(' ');
 
   const firstX = xAt(plot, 0, n).toFixed(2);
@@ -344,7 +352,9 @@ export function renderAreaChart(stock, options) {
 export function renderBarChart(stock, options) {
   const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
-  const range = priceRange(stock.bars, true);
+  const worthMode = o.valueMode === 'worth';
+  if (worthMode) _assertWorth(stock);
+  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, true);
   const n = stock.bars.length;
 
   const slot = plot.w / Math.max(1, n);
@@ -357,10 +367,10 @@ export function renderBarChart(stock, options) {
   const bars = stock.bars
     .map((b, i) => {
       const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
-      const yHigh = yAt(plot, b.high, range);
-      const yLow = yAt(plot, b.low, range);
-      const yOpen = yAt(plot, b.open, range);
-      const yClose = yAt(plot, b.close, range);
+      const yHigh = yAt(plot, worthMode ? b.worth : b.high, range);
+      const yLow  = yAt(plot, worthMode ? b.worth : b.low,  range);
+      const yOpen  = yAt(plot, worthMode ? b.worth : b.open,  range);
+      const yClose = yAt(plot, worthMode ? b.worth : b.close, range);
       const color = b.close >= b.open ? o.colors.up : o.colors.down;
       return (
         `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
@@ -394,7 +404,9 @@ export function renderBarChart(stock, options) {
 export function renderCandlestickChart(stock, options) {
   const o = withEventPadding(resolve(options), options?.events?.length);
   const plot = plotArea(o);
-  const range = priceRange(stock.bars, true);
+  const worthMode = o.valueMode === 'worth';
+  if (worthMode) _assertWorth(stock);
+  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, true);
   const n = stock.bars.length;
 
   const slot = plot.w / Math.max(1, n);
@@ -408,10 +420,10 @@ export function renderCandlestickChart(stock, options) {
   const candles = stock.bars
     .map((b, i) => {
       const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
-      const yHigh = yAt(plot, b.high, range);
-      const yLow = yAt(plot, b.low, range);
-      const yOpen = yAt(plot, b.open, range);
-      const yClose = yAt(plot, b.close, range);
+      const yHigh = yAt(plot, worthMode ? b.worth : b.high,  range);
+      const yLow  = yAt(plot, worthMode ? b.worth : b.low,   range);
+      const yOpen  = yAt(plot, worthMode ? b.worth : b.open,  range);
+      const yClose = yAt(plot, worthMode ? b.worth : b.close, range);
       const up = b.close >= b.open;
       const color = up ? o.colors.up : o.colors.down;
       const top = Math.min(yOpen, yClose);
@@ -639,6 +651,35 @@ export function renderMultiLineChart(stocks, options = {}) {
   return svgWrap(o, body);
 }
 
+
+/**
+ * Compute value range from bar.worth values.
+ * @param {import('./generator.js').Bar[]} bars
+ * @returns {{min:number,max:number}}
+ */
+function worthRange(bars) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const b of bars) {
+    if (b.worth < min) min = b.worth;
+    if (b.worth > max) max = b.worth;
+  }
+  if (min === max) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.05;
+  return { min: Math.max(0, min - pad), max: max + pad };
+}
+
+/**
+ * Assert that every bar has a `worth` field (i.e. sharesOutstanding was set).
+ */
+function _assertWorth(stock) {
+  if (stock.sharesOutstanding == null || stock.bars[0]?.worth == null) {
+    throw new Error(
+      `valueMode: 'worth' requires sharesOutstanding to be set on the stock. ` +
+      `Generate the stock with { sharesOutstanding: <number> }.`
+    );
+  }
+}
 
 /**
  * Universal renderer. Pick a chart type by name.

@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.1 — 2026-06-14
+
+### Added
+- `loadEvents(source)` / `loadEventsSync(source)` — normalise the `events` option from any source:
+  - Array → returned as-is
+  - String ending in `.json` → read from disk (Node.js) and parsed
+  - Plain object → wrapped in a single-element array
+  - `{ name, events: [...] }` envelope object → the `events` array is extracted
+  - `null` / `undefined` → empty array
+- `sharesOutstanding` option on `generateStock()` — when set, every bar gets a `worth` field (`close × sharesOutstanding`) representing total company valuation.
+- `valueMode: 'worth'` chart option — all single-stock renderers (`renderLineChart`, `renderAreaChart`, `renderBarChart`, `renderCandlestickChart`) accept `valueMode: 'worth'` to plot `bar.worth` instead of `bar.close`/OHLC prices.
+- `fromJSON` preserves `sharesOutstanding` and `bar.worth` on round-trips.
+
 ## 1.3.0 — 2026-06-14
 
 ### Added

@@ -26,6 +26,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number} low
  * @property {number} close
  * @property {number} volume
+ * @property {number} [worth]  - Total company worth at close (close × sharesOutstanding). Present only when sharesOutstanding is set.
  */
 
 /**
@@ -35,6 +36,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {string|null} sector
  * @property {number} startPrice
  * @property {number} interval - milliseconds between bars
+ * @property {number|null} sharesOutstanding - Total shares outstanding (null when not set). Used to compute bar.worth.
  * @property {Bar[]} bars
  */
 
@@ -57,6 +59,8 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {Bar[]} [ohlc]                   - Full custom bars. Each entry must
  *   have `open`, `high`, `low`, `close`. `time`/`date`/`volume` are filled in if
  *   missing. Useful for round-tripping a previously generated stock.
+ * @property {number} [sharesOutstanding]      - Total shares outstanding. When set, each bar gets a `worth` field
+ *   equal to `close × sharesOutstanding`, representing total company valuation.
  */
 
 const DEFAULTS = {
@@ -169,6 +173,10 @@ function validateOptions(opts) {
   }
   if (opts.prices !== undefined && opts.ohlc !== undefined) {
     throw new Error(`Pass either "prices" or "ohlc", not both`);
+  }
+  if (opts.sharesOutstanding !== undefined &&
+      (!Number.isFinite(opts.sharesOutstanding) || opts.sharesOutstanding <= 0)) {
+    throw new Error(`"sharesOutstanding" must be a positive finite number, got ${opts.sharesOutstanding}`);
   }
 }
 
@@ -313,6 +321,13 @@ export function generateStock(options = {}) {
     }
   }
 
+  const sharesOutstanding = opts.sharesOutstanding ?? null;
+  if (sharesOutstanding !== null) {
+    for (let i = 0; i < bars.length; i++) {
+      bars[i].worth = round2(bars[i].close * sharesOutstanding);
+    }
+  }
+
   return {
     symbol,
     name,
@@ -320,6 +335,7 @@ export function generateStock(options = {}) {
     kind: opts.kind,
     startPrice: round2(opts.startPrice ?? firstOpen),
     interval: intervalMs,
+    sharesOutstanding,
     bars
   };
 }
@@ -381,6 +397,7 @@ function rebuildOne(obj) {
     kind: obj.kind ?? undefined,
     startPrice: obj.startPrice,
     interval: obj.interval,
+    sharesOutstanding: obj.sharesOutstanding ?? undefined,
     ohlc: obj.bars
   });
 }
