@@ -62,3 +62,58 @@ export function cleanNumericArray(arr) {
   if (!arr) return [];
   return arr.map(parseNumeric).filter(v => v != null && Number.isFinite(v));
 }
+
+/**
+ * Suffix multipliers for formatHumanNumber.
+ */
+const HUMAN_SUFFIXES = [
+  { threshold: 1e15, suffix: 'QD', divisor: 1e15 },  // quadrillion
+  { threshold: 1e12, suffix: 'T', divisor: 1e12 },   // trillion
+  { threshold: 1e9, suffix: 'B', divisor: 1e9 },    // billion
+  { threshold: 1e6, suffix: 'M', divisor: 1e6 },      // million
+  { threshold: 1e3, suffix: 'K', divisor: 1e3 }       // thousand
+];
+
+/**
+ * Format a number for human-readable display with K/M/B/T/QD suffixes.
+ * Used for axis labels on charts.
+ *
+ *   100     -> "100"
+ *   1000    -> "1000"
+ *   2000    -> "2000"
+ *   4000    -> "4000"
+ *   5000    -> "5K"
+ *   10000   -> "10K"
+ *   10200   -> "10.2K"
+ *   1000000 -> "1M"
+ *   1500000 -> "1.5M"
+ *   1e9     -> "1B"
+ *
+ * @param {number} value
+ * @param {number} [precision=1] - decimal places for scaled values
+ * @returns {string}
+ */
+export function formatHumanNumber(value, precision = 1) {
+  if (!Number.isFinite(value)) return String(value);
+  const abs = Math.abs(value);
+
+  // Small numbers: show as-is (no suffix)
+  if (abs < 5000) {
+    // For values like 1000-4999, show full number without commas
+    return String(value);
+  }
+
+  // Find appropriate suffix
+  for (const { threshold, suffix, divisor } of HUMAN_SUFFIXES) {
+    if (abs >= threshold) {
+      const scaled = value / divisor;
+      // Don't show decimals for whole numbers
+      const rounded = Math.abs(scaled - Math.round(scaled)) < 0.05
+        ? Math.round(scaled)
+        : parseFloat(scaled.toFixed(precision));
+      return rounded + suffix;
+    }
+  }
+
+  return String(value);
+}

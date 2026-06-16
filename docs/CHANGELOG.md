@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.4 — 2026-06-17
+
+### Added
+- `formatHumanNumber(value)` — format large numbers for readable axis labels:
+  - `100` → `"100"`
+  - `1000` → `"1000"`
+  - `5000` → `"5K"`
+  - `10000` → `"10K"`
+  - `10200` → `"10.2K"`
+  - `1500000` → `"1.5M"`
+  - `2300000000` → `"2.3B"`
+  - `1000000000000` → `"1T"`
+  - `1e15` → `"1QD"` (quadrillion)
+- **All chart axes** now automatically use human-readable formatting for large values (≥5000). Net worth charts, market cap charts, and multi-line comparisons show `15.2M` instead of `15200000`.
+- `applySplit(stock, splitDate, ratio)` — apply stock splits to historical data:
+  - Forward splits: `2` (2:1), `3` (3:1) — historical prices divided, volume multiplied
+  - Reverse splits: `0.5` (1:2), `0.1` (1:10) — historical prices multiplied, volume divided
+  - Records split history on `stock.splits` array with `{ date, ratio, type, display }`
+  - Adjusts OHLC, volume, and `worth` fields automatically
+
 ## 1.3.3 — 2026-06-17
 
 ### Added

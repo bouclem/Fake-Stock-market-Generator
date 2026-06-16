@@ -245,6 +245,32 @@ writeFileSync('alice.svg', renderNetWorthChart(nw, { theme: 'dark' }));
 
 `toJSON` / `fromJSON` work with net worth objects too — they round-trip cleanly.
 
+### `applySplit(stock, splitDate, ratio) -> Stock`
+
+Apply a stock split (2:1, 3:1, 1:10 reverse) to historical data. Adjusts all OHLC prices before the split date so the chart remains continuous. Records split history on the stock object.
+
+```js
+import { generateStock, applySplit, renderAreaChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ symbol: 'NOVA', startPrice: 200, bars: 200, interval: '1d', seed: 'split' });
+
+// Apply a 2:1 split on day 100
+// Historical prices before the split are halved, volume doubled
+const splitStock = applySplit(stock, stock.bars[100].date, 2);
+
+console.log(splitStock.splits);
+// [{ date: '...', ratio: 2, type: 'forward', display: '2:1' }]
+
+writeFileSync('split-chart.svg', renderAreaChart(splitStock));
+```
+
+**Ratios:**
+- Forward splits: `2` (2:1), `3` (3:1), `4` (4:1) — price drops, shares increase
+- Reverse splits: `0.5` (1:2), `0.1` (1:10) — price rises, shares decrease
+
+The function adjusts `open`, `high`, `low`, `close`, `volume`, and `worth` fields automatically.
+
 ### `sharesOutstanding` and company worth
 
 Pass `sharesOutstanding` to `generateStock()` and every bar gets a `worth` field:
@@ -297,7 +323,17 @@ parseNumeric('500K');  // 500000
 
 // Format numbers back with underscores
 formatNumeric(1200000);  // "1_200_000"
+
+// Format for human-readable display (axis labels)
+formatHumanNumber(100);       // "100"
+formatHumanNumber(5000);      // "5K"
+formatHumanNumber(10200);     // "10.2K"
+formatHumanNumber(1500000);   // "1.5M"
+formatHumanNumber(2300000000); // "2.3B"
+formatHumanNumber(1e12);      // "1T"
 ```
+
+All chart axes automatically use `formatHumanNumber` for large values (≥5000), so market cap charts show "15.2M" instead of "15200000".
 
 Use in JSON configs:
 ```json

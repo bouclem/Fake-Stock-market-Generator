@@ -2,6 +2,8 @@
 // Each renderer returns a complete <svg>...</svg> document you can save as
 // a .svg file or inline into an HTML page.
 
+import { formatHumanNumber } from './numeric.js';
+
 const THEMES = {
   light: {
     bg: '#ffffff',
@@ -117,6 +119,8 @@ function priceRange(bars, useOHLC) {
 
 function formatPrice(n) {
   const abs = Math.abs(n);
+  // Use human-readable format (K/M/B/T) for large numbers on axes
+  if (abs >= 5000) return formatHumanNumber(n, 1);
   if (abs >= 1000) return n.toFixed(0);
   if (abs >= 100) return n.toFixed(1);
   if (abs >= 1) return n.toFixed(2);

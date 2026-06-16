@@ -585,3 +585,80 @@ export function generateMarket(options = {}) {
     return generateStock(merged);
   });
 }
+
+/**
+ * Apply a stock split to historical data.
+ * Adjusts OHLC prices before the split date and records the split info.
+ *
+ * @param {Stock} stock - The stock to adjust
+ * @param {Date|number|string} splitDate - When the split occurs (first bar at new price)
+ * @param {number} ratio - Split ratio:
+ *   - 2 = 2:1 split (double shares, half price)
+ *   - 3 = 3:1 split (triple shares, third price)
+ *   - 0.5 = 1:2 reverse split (half shares, double price)
+ * @returns {Stock} New stock object with adjusted bars and split history
+ * @example
+ * // 2:1 split - historical prices halved
+ * const splitStock = applySplit(stock, '2024-06-15', 2);
+ *
+ * // 1:10 reverse split - historical prices multiplied by 10
+ * const reverseSplit = applySplit(stock, '2024-06-15', 0.1);
+ */
+export function applySplit(stock, splitDate, ratio) {
+  if (!stock || !Array.isArray(stock.bars) || stock.bars.length === 0) {
+    throw new Error('applySplit: expected a stock with non-empty bars array');
+  }
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    throw new Error(`applySplit: ratio must be a positive number, got ${ratio}`);
+  }
+
+  const splitTime = new Date(splitDate).getTime();
+  if (!Number.isFinite(splitTime)) {
+    throw new Error(`applySplit: invalid split date: ${splitDate}`);
+  }
+
+  // Find the first bar at or after the split date
+  const splitIndex = stock.bars.findIndex(b => b.time >= splitTime);
+  if (splitIndex === -1) {
+    throw new Error(`applySplit: split date ${splitDate} is after all bars`);
+  }
+  if (splitIndex === 0) {
+    throw new Error(`applySplit: split date ${splitDate} is before or at first bar`);
+  }
+
+  // Adjust historical bars (before split) by dividing by ratio
+  // For 2:1 split: old $100 becomes $50 (comparable to new $50 price)
+  const adjustedBars = stock.bars.map((b, i) => {
+    if (i >= splitIndex) return b; // Bars at/after split stay the same
+
+    const factor = 1 / ratio;
+    return {
+      ...b,
+      open: round2(b.open * factor),
+      high: round2(b.high * factor),
+      low: round2(b.low * factor),
+      close: round2(b.close * factor),
+      // Volume is multiplied by ratio (more shares at lower price = same value)
+      volume: Math.round(b.volume * ratio),
+      // Worth also adjusted if present
+      ...(b.worth != null ? { worth: round2(b.worth * factor) } : {})
+    };
+  });
+
+  // Build split history entry
+  const splitEntry = {
+    date: stock.bars[splitIndex].date,
+    time: splitTime,
+    ratio: ratio,
+    type: ratio > 1 ? 'forward' : 'reverse',
+    display: ratio > 1 ? `${Math.round(ratio)}:1` : `1:${Math.round(1 / ratio)}`
+  };
+
+  return {
+    ...stock,
+    bars: adjustedBars,
+    startPrice: adjustedBars[0].open,
+    // Add split to history (or create new history array)
+    splits: [...(stock.splits || []), splitEntry]
+  };
+}

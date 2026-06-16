@@ -11,6 +11,8 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] `loadEvents` / `loadEventsSync` — events from `.json` files or objects — shipped in 1.3.1
 - [x] `parseNumeric` — underscore notation ("1_200_000") and suffixes ("1.5M", "2.3B") — shipped in 1.3.2
 - [x] `renderMixedChart` — plot net worth + company worth + stocks together — shipped in 1.3.3
+- [x] `formatHumanNumber` — readable axis labels (5K, 10.2K, 1.5M, 2.3B) — shipped in 1.3.4
+- [x] `applySplit` — stock splits (2:1, 3:1, reverse 1:10) — shipped in 1.3.4
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)
