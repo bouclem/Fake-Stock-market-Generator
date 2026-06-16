@@ -2,6 +2,7 @@
 
 export { generateStock, generateMarket, generateNetWorth, toJSON, fromJSON } from './generator.js';
 export { loadEvents, loadEventsSync } from './events.js';
+export { parseNumeric, formatNumeric, cleanNumericArray } from './numeric.js';
 export {
   renderChart,
   renderLineChart,

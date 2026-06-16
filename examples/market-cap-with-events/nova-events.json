@@ -1,0 +1,27 @@
+{
+  "name": "NOVA Q1 2024 Milestones",
+  "ticker": "NOVA",
+  "description": "Key events for NovaTech Industries during January 2024",
+  "events": [
+    {
+      "date": "2024-01-03",
+      "label": "CES Keynote",
+      "color": "#3b82f6"
+    },
+    {
+      "date": "2024-01-08",
+      "label": "Q4 Earnings Beat",
+      "color": "#22c55e"
+    },
+    {
+      "date": "2024-01-15",
+      "label": "AI Partnership",
+      "color": "#8b5cf6"
+    },
+    {
+      "date": "2024-01-22",
+      "label": "Analyst Upgrade",
+      "color": "#f59e0b"
+    }
+  ]
+}

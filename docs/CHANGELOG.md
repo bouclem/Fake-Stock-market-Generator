@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.2 — 2026-06-17
+
+### Added
+- `parseNumeric(value)` — parse numbers written with underscores (`"1_200_000"`) or suffixes (`"1.5M"`, `"2.3B"`, `"500K"`). Returns a plain number. Works with:
+  - Underscore notation: `"15_000_000"` → `15000000`
+  - Suffix shorthand: `"1.5M"` → `1500000`, `"2.3B"` → `2300000000`, `"500K"` → `500000`
+  - Plain numbers: passed through as-is
+  - `null`/`undefined`: returned as-is
+- `formatNumeric(value)` — format a number with underscores for readability: `1200000` → `"1_200_000"`
+- `cleanNumericArray(arr)` — map `parseNumeric` over an array, filtering out invalid entries
+- `generateNetWorth({ values: [...] })` now auto-parses string values with underscores or suffixes, so JSON config files can use readable numbers.
+- `generateStock({ sharesOutstanding: "100_000_000" })` also accepts underscore strings.
+
 ## 1.3.1 — 2026-06-14
 
 ### Added

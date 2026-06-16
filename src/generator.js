@@ -13,6 +13,7 @@
 import { createRng } from './prng.js';
 import { makeSymbol } from './symbols.js';
 import { parseIntervalSpec, stepTime } from './interval.js';
+import { parseNumeric } from './numeric.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_MS = 365 * DAY_MS;
@@ -321,7 +322,7 @@ export function generateStock(options = {}) {
     }
   }
 
-  const sharesOutstanding = opts.sharesOutstanding ?? null;
+  const sharesOutstanding = parseNumeric(opts.sharesOutstanding) ?? null;
   if (sharesOutstanding !== null) {
     for (let i = 0; i < bars.length; i++) {
       bars[i].worth = round2(bars[i].close * sharesOutstanding);
@@ -515,7 +516,7 @@ export function generateNetWorth(options = {}) {
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        value: round2(opts.values[i])
+        value: round2(parseNumeric(opts.values[i]))
       };
     }
   } else {

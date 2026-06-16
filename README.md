@@ -279,6 +279,49 @@ writeFileSync('chart.svg', renderLineChart(stock, { events }));
 
 The JSON file can be a plain array or an envelope `{ name, events: [...] }`. `loadEvents` also accepts an array (passthrough), a single event object, or `null`/`undefined` (returns `[]`).
 
+### `parseNumeric(value)` / `formatNumeric(value)`
+
+Write readable numbers with underscores or suffixes in JSON config files. `parseNumeric` converts them to actual numbers:
+
+```js
+import { parseNumeric, formatNumeric, generateNetWorth } from 'stock-market-gen';
+
+// Underscore notation (readable in JSON)
+parseNumeric('1_200_000');      // 1200000
+parseNumeric('15_000_000_000'); // 15000000000
+
+// Suffix shorthand
+parseNumeric('1.5M');  // 1500000
+parseNumeric('2.3B');  // 2300000000
+parseNumeric('500K');  // 500000
+
+// Format numbers back with underscores
+formatNumeric(1200000);  // "1_200_000"
+```
+
+Use in JSON configs:
+```json
+{
+  "startDate": "2024-01-02",
+  "interval": "1d",
+  "values": [
+    "15_000_000_000",
+    "15_500_000_000",
+    "16_200_000_000"
+  ]
+}
+```
+
+Then load and parse:
+```js
+const config = JSON.parse(readFileSync('config.json', 'utf8'));
+const netWorth = generateNetWorth({
+  values: config.values,  // underscore strings auto-parsed
+  startDate: config.startDate,
+  interval: config.interval
+});
+```
+
 ### `renderChart(stock, type, options)`
 
 `type` is `"line"`, `"area"`, `"bar"` or `"candlestick"`. Or call the dedicated renderers: `renderLineChart`, `renderAreaChart`, `renderBarChart`, `renderCandlestickChart`.

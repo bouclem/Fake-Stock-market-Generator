@@ -9,6 +9,7 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] Net worth time series (`generateNetWorth`) — shipped in 1.3.0
 - [x] `sharesOutstanding` — company total worth per bar — shipped in 1.3.1
 - [x] `loadEvents` / `loadEventsSync` — events from `.json` files or objects — shipped in 1.3.1
+- [x] `parseNumeric` — underscore notation ("1_200_000") and suffixes ("1.5M", "2.3B") — shipped in 1.3.2
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)
