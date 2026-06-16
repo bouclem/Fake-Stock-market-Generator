@@ -754,3 +754,199 @@ export function renderNetWorthChart(netWorth, options) {
 
   return svgWrap(o, body);
 }
+
+/**
+ * @typedef {Object} MixedChartItem
+ * @property {import('./generator.js').NetWorth | import('./generator.js').Stock} data - The data object (NetWorth or Stock)
+ * @property {'value'|'worth'|'close'|'auto'} [valueField] - Which field to plot:
+ *   - 'value' for NetWorth (default for NetWorth)
+ *   - 'worth' for company market cap (requires sharesOutstanding)
+ *   - 'close' for stock price (default for Stock without sharesOutstanding)
+ *   - 'auto' picks best available: worth > close for Stock, value for NetWorth
+ * @property {string} [label] - Custom label for legend (defaults to symbol/name)
+ * @property {string} [color] - Override color for this line
+ */
+
+/**
+ * @typedef {Object} MixedChartOptions
+ * @property {number} [width]
+ * @property {number} [height]
+ * @property {{top:number,right:number,bottom:number,left:number}} [padding]
+ * @property {'light'|'dark'} [theme]
+ * @property {string} [title]
+ * @property {boolean} [showGrid]
+ * @property {boolean} [showAxes]
+ * @property {number} [xTicks]
+ * @property {number} [yTicks]
+ * @property {'absolute'|'normalized'|'percent'} [mode] - How to align different scales:
+ *   - 'absolute': raw values (only works if all items are similar magnitude)
+ *   - 'normalized': rebase all series to 100 at start (default)
+ *   - 'percent': percent change from start (0% = start value)
+ * @property {boolean} [showLegend] - Show legend with labels (default: true)
+ * @property {ChartEvent[]} [events]
+ * @property {Partial<typeof THEMES.light>} [colors]
+ */
+
+/**
+ * Render a mixed chart combining NetWorth, Stocks (price or worth), and Companies.
+ * All series are normalized to the same scale for comparison.
+ *
+ * @param {MixedChartItem[]} items
+ * @param {MixedChartOptions} [options]
+ * @returns {string} SVG document
+ */
+export function renderMixedChart(items, options = {}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('renderMixedChart: expected a non-empty array of items');
+  }
+  if (items.length > 8) {
+    throw new Error('renderMixedChart: maximum 8 items supported');
+  }
+
+  const o = withEventPadding(resolve(options), options?.events?.length);
+  const mode = options.mode || 'normalized'; // 'absolute', 'normalized', 'percent'
+  const showLegend = options.showLegend !== false;
+  const plot = plotArea(o);
+
+  // Determine time range across all items
+  let tMin = Infinity;
+  let tMax = -Infinity;
+
+  // Build normalized series data
+  const series = items.map((item, idx) => {
+    const data = item.data;
+    const isNetWorth = data && typeof data.startValue === 'number' && !data.bars[0]?.close;
+    const isStock = data && typeof data.bars?.[0]?.close === 'number';
+
+    if (!isNetWorth && !isStock) {
+      throw new Error(`Item ${idx}: expected NetWorth or Stock object`);
+    }
+
+    // Determine value field
+    let valueField = item.valueField || 'auto';
+    if (valueField === 'auto') {
+      if (isNetWorth) valueField = 'value';
+      else if (data.sharesOutstanding && data.bars[0]?.worth != null) valueField = 'worth';
+      else valueField = 'close';
+    }
+
+    // Extract values and times
+    const points = data.bars.map((b, i) => {
+      const t = b.time;
+      const v = isNetWorth ? b.value : (valueField === 'worth' ? b.worth : b.close);
+      if (t < tMin) tMin = t;
+      if (t > tMax) tMax = t;
+      return { t, v, idx: i };
+    }).filter(p => p.v != null && Number.isFinite(p.v));
+
+    if (points.length === 0) {
+      throw new Error(`Item ${idx}: no valid data points for valueField="${valueField}"`);
+    }
+
+    // Get label
+    const label = item.label || (isNetWorth ? data.name : (data.symbol || data.name || `Item ${idx + 1}`));
+
+    // Assign color
+    const palette = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#db2777', '#4b5563'];
+    const color = item.color || palette[idx % palette.length];
+
+    return { points, label, color, valueField, data };
+  });
+
+  if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || tMin === tMax) {
+    throw new Error('renderMixedChart: could not determine valid time range from items');
+  }
+
+  // Normalize series based on mode
+  let vMin = Infinity;
+  let vMax = -Infinity;
+
+  series.forEach(s => {
+    const startVal = s.points[0].v;
+
+    s.normalizedPoints = s.points.map(p => {
+      let v;
+      if (mode === 'absolute') {
+        v = p.v;
+      } else if (mode === 'normalized') {
+        v = (p.v / startVal) * 100;
+      } else if (mode === 'percent') {
+        v = ((p.v - startVal) / startVal) * 100;
+      }
+      if (v < vMin) vMin = v;
+      if (v > vMax) vMax = v;
+      return { t: p.t, v };
+    });
+  });
+
+  if (vMin === vMax) { vMin -= 1; vMax += 1; }
+  const vPad = (vMax - vMin) * 0.05;
+  const range = { min: vMin - vPad, max: vMax + vPad };
+
+  // Build SVG paths
+  const lines = series.map(s => {
+    const points = s.normalizedPoints.map(p => {
+      const x = plot.x + ((p.t - tMin) / (tMax - tMin)) * plot.w;
+      const y = yAt(plot, p.v, range);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+    return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }).join('');
+
+  // Build axis bars for date labels
+  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 6));
+  const axisBars = [];
+  for (let i = 0; i < xTicksCount; i++) {
+    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
+    axisBars.push({ time: t });
+  }
+
+  // Resolve and build events
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
+
+  // Build legend
+  let legend = '';
+  if (showLegend) {
+    const lh = 18;
+    const swatchW = 18;
+    const gap = 8;
+    const padX = 10;
+    const padY = 6;
+    const charPx = 9;
+
+    const maxChars = Math.max(...series.map(s => String(s.label).length));
+    const labelPx = maxChars * charPx;
+    const boxW = padX + swatchW + gap + labelPx + padX;
+    const boxH = padY * 2 + series.length * lh;
+    const boxX = plot.x + 4;
+    const boxY = plot.y + 4;
+
+    const items = series.map((s, i) => {
+      const y = boxY + padY + i * lh;
+      const safeLabel = escapeXml(s.label);
+      const swatchX = boxX + padX;
+      const textX = swatchX + swatchW + gap;
+      return (
+        `<line x1="${swatchX}" y1="${y + 7}" x2="${swatchX + swatchW}" y2="${y + 7}" stroke="${s.color}" stroke-width="3" stroke-linecap="round"/>` +
+        `<text x="${textX}" y="${y + 11}" text-anchor="start" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${safeLabel}</text>`
+      );
+    }).join('');
+
+    legend =
+      `<rect x="${boxX}" y="${boxY}" width="${boxW}" height="${boxH}" rx="6" ry="6" fill="${o.colors.bg}" fill-opacity="0.7" stroke="${o.colors.grid}" stroke-width="1"/>` +
+      items;
+  }
+
+  // Y-axis label based on mode
+  const yLabel = mode === 'absolute' ? 'Value' : (mode === 'normalized' ? 'Rebased (start=100)' : 'Change %');
+
+  const body =
+    buildAxes({ ...o, yLabel }, plot, range, axisBars) +
+    buildEvents(evs, plot, o) +
+    lines +
+    legend +
+    buildTitle({ ...o, title: resolveTitle(o.title, mode === 'normalized' ? 'Mixed Comparison (Normalized)' : 'Mixed Comparison') });
+
+  return svgWrap(o, body);
+}

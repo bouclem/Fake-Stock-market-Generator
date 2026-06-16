@@ -330,6 +330,68 @@ const netWorth = generateNetWorth({
 
 Render a `NetWorth` object as a line+area SVG chart. Accepts the same options as all other renderers.
 
+### `renderMixedChart(items, options) -> string`
+
+Plot **NetWorth**, **company market cap**, and **stock prices** together on a single chart. All series are normalized to the same scale for comparison.
+
+```js
+import { generateStock, generateNetWorth, renderMixedChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+// A person's net worth
+const person = generateNetWorth({
+  name: 'Alice',
+  startValue: '5_000_000',
+  bars: 30,
+  interval: '1d',
+  seed: 'alice'
+});
+
+// A company with market cap (sharesOutstanding)
+const company = generateStock({
+  symbol: 'NOVA',
+  sharesOutstanding: '100_000_000',
+  startPrice: 150,
+  bars: 30,
+  interval: '1d',
+  seed: 'nova'
+});
+
+// A regular stock (price only)
+const stock = generateStock({
+  symbol: 'TECH',
+  startPrice: 200,
+  bars: 30,
+  interval: '1d',
+  seed: 'tech'
+});
+
+// Plot all three together
+const svg = renderMixedChart([
+  { data: person, label: 'Alice Net Worth', valueField: 'value' },
+  { data: company, label: 'NOVA Market Cap', valueField: 'worth' },
+  { data: stock, label: 'TECH Stock Price', valueField: 'close' }
+], {
+  mode: 'normalized',  // 'normalized' | 'percent' | 'absolute'
+  theme: 'light',
+  width: 1400,
+  height: 700
+});
+
+writeFileSync('comparison.svg', svg);
+```
+
+**Modes:**
+- `'normalized'` (default) — rebases all series to 100 at their start dates
+- `'percent'` — shows percent change from start (0% = start value)
+- `'absolute'` — raw values (only works if all items are similar magnitude)
+
+**Item options:**
+- `data` — a `NetWorth` or `Stock` object
+- `valueField` — `'value'` (net worth), `'worth'` (market cap), `'close'` (stock price), or `'auto'` (picks best available)
+- `label` — custom legend label
+- `color` — custom line color
+
 Chart options:
 
 ```js

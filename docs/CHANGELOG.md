@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.3 — 2026-06-17
+
+### Added
+- `renderMixedChart(items, options)` — plot **NetWorth**, **company market cap**, and **stock prices** together on a single chart.
+  - Pass an array of `{ data, valueField?, label?, color? }` objects
+  - `valueField`: `'value'` (net worth), `'worth'` (market cap), `'close'` (stock price), or `'auto'` (picks best available)
+  - `mode`: `'normalized'` (default, rebases all to 100), `'percent'` (change from start), or `'absolute'` (raw values)
+  - Automatic legend with color-coded lines
+  - Up to 8 items per chart
+  - Event markers supported
+  - All series aligned to a common time axis (handles different bar counts and date ranges)
+
 ## 1.3.2 — 2026-06-17
 
 ### Added
