@@ -354,12 +354,12 @@ writeFileSync('chart.svg', renderLineChart(stock, { events }));
 
 The JSON file can be a plain array or an envelope `{ name, events: [...] }`. `loadEvents` also accepts an array (passthrough), a single event object, or `null`/`undefined` (returns `[]`).
 
-### `parseNumeric(value)` / `formatNumeric(value)`
+### `parseNumeric(value)` / `formatNumeric(value)` / `cleanJson(json)` / `parseJson(json)`
 
 Write readable numbers with underscores or suffixes in JSON config files. `parseNumeric` converts them to actual numbers:
 
 ```js
-import { parseNumeric, formatNumeric, generateNetWorth } from 'stock-market-gen';
+import { parseNumeric, formatNumeric, cleanJson, parseJson, generateNetWorth } from 'stock-market-gen';
 
 // Underscore notation (readable in JSON)
 parseNumeric('1_200_000');      // 1200000
@@ -397,11 +397,26 @@ Use in JSON configs:
 }
 ```
 
-Then load and parse:
+**Important:** Standard `JSON.parse()` does **not** support underscores in numbers (e.g., `10_500`). Use `parseJson()` or pre-process with `cleanJson()`:
+
 ```js
-const config = JSON.parse(readFileSync('config.json', 'utf8'));
+import { parseJson, cleanJson } from 'stock-market-gen';
+import { readFileSync } from 'node:fs';
+
+// Option 1: Use parseJson() instead of JSON.parse()
+const config = parseJson(readFileSync('config.json', 'utf8'));
+// config.values === [10500, 11900, 13200]
+
+// Option 2: Pre-process then parse
+const raw = readFileSync('config.json', 'utf8');
+const cleaned = cleanJson(raw);  // removes underscores from numbers
+const config = JSON.parse(cleaned);
+```
+
+Then use normally:
+```js
 const netWorth = generateNetWorth({
-  values: config.values,  // underscore strings auto-parsed
+  values: config.values,
   startDate: config.startDate,
   interval: config.interval
 });

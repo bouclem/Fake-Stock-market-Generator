@@ -19,6 +19,7 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] Include README.md in npm package — shipped in 1.3.6
 - [x] Volume on net worth bars — shipped in 1.3.7
 - [x] `renderChartWithVolume` — volume sub-panel charts — shipped in 1.3.7
+- [x] `cleanJson` / `parseJson` — parse JSON with numeric underscores — shipped in 1.3.7
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)

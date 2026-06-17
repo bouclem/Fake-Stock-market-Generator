@@ -13,6 +13,8 @@ All notable changes to this project are documented here.
   - Configurable panel height via `volumeHeight` option (default 25%)
   - Works with stocks, net worth, and any data with `volume` on bars
   - Supports all chart types: 'line', 'area', 'bar', 'candlestick'
+- `cleanJson(jsonString)` — pre-process JSON to remove underscores from numeric literals (e.g., `10_500` → `10500`)
+- `parseJson(jsonString)` — parse JSON that may contain underscore notation in numbers
 
 ## 1.3.6 — 2026-06-17
 

@@ -64,6 +64,56 @@ export function cleanNumericArray(arr) {
 }
 
 /**
+ * Pre-process a JSON string to remove underscores from numeric literals.
+ * Standard JSON.parse() doesn't support underscores (10_500), but this
+ * cleans them so you can use human-readable numbers in JSON config files.
+ *
+ * @param {string} jsonString - Raw JSON with possible underscores in numbers
+ * @returns {string} Cleaned JSON string safe for JSON.parse()
+ * @example
+ * const raw = '{ "value": 10_500, "price": 1_200_000.50 }';
+ * const clean = cleanJson(raw);
+ * const obj = JSON.parse(clean); // { value: 10500, price: 1200000.50 }
+ */
+export function cleanJson(jsonString) {
+  if (!jsonString || typeof jsonString !== 'string') return jsonString;
+
+  // Match numeric literals including underscores:
+  // - 10_500 (integer with underscores)
+  // - 1_200_000.50 (float with underscores in integer part)
+  // - 1.5e6_000 (scientific notation - rare but possible)
+  // Also matches negative numbers: -10_500
+  //
+  // Regex explanation:
+  // -?            optional negative sign
+  // \d[\d_]*      digits with possible underscores (integer part)
+  // (?:\.\d[\d_]*)? optional decimal part
+  // (?:[eE][+-]?\d+)? optional exponent
+  return jsonString.replace(/-?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?/g, (match) => {
+    // If it has underscores, remove them
+    if (match.includes('_')) {
+      return match.replace(/_/g, '');
+    }
+    return match;
+  });
+}
+
+/**
+ * Parse JSON that may contain underscore notation in numbers.
+ * Combines cleanJson() with JSON.parse() for seamless support.
+ *
+ * @param {string} jsonString - JSON string with possible underscores
+ * @returns {any} Parsed object
+ * @example
+ * const obj = parseJson('{ "values": [10_500, 1_200_000] }');
+ * // obj.values === [10500, 1200000]
+ */
+export function parseJson(jsonString) {
+  const cleaned = cleanJson(jsonString);
+  return JSON.parse(cleaned);
+}
+
+/**
  * Suffix multipliers for formatHumanNumber.
  */
 const HUMAN_SUFFIXES = [
