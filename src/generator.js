@@ -587,29 +587,91 @@ export function generateMarket(options = {}) {
 }
 
 /**
- * Apply a stock split to historical data.
- * Adjusts OHLC prices before the split date and records the split info.
+ * Parse a split ratio string like "3:1", "2:1", "1:2", "1:10" into a numeric ratio.
+ * Forward splits (3:1) return 3, reverse splits (1:2) return 0.5.
+ * Also accepts plain numbers.
  *
- * @param {Stock} stock - The stock to adjust
- * @param {Date|number|string} splitDate - When the split occurs (first bar at new price)
- * @param {number} ratio - Split ratio:
- *   - 2 = 2:1 split (double shares, half price)
- *   - 3 = 3:1 split (triple shares, third price)
- *   - 0.5 = 1:2 reverse split (half shares, double price)
- * @returns {Stock} New stock object with adjusted bars and split history
+ * @param {string|number} value - Split specification: "3:1", "1:2", or numeric ratio
+ * @returns {number} Numeric ratio (3 for 3:1, 0.5 for 1:2)
  * @example
- * // 2:1 split - historical prices halved
- * const splitStock = applySplit(stock, '2024-06-15', 2);
- *
- * // 1:10 reverse split - historical prices multiplied by 10
- * const reverseSplit = applySplit(stock, '2024-06-15', 0.1);
+ * parseSplitRatio("3:1");   // 3
+ * parseSplitRatio("1:2");   // 0.5
+ * parseSplitRatio("1:10");  // 0.1
+ * parseSplitRatio(2);       // 2
  */
-export function applySplit(stock, splitDate, ratio) {
-  if (!stock || !Array.isArray(stock.bars) || stock.bars.length === 0) {
-    throw new Error('applySplit: expected a stock with non-empty bars array');
+export function parseSplitRatio(value) {
+  if (value == null) return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`parseSplitRatio: invalid ratio number: ${value}`);
+    }
+    return value;
   }
-  if (!Number.isFinite(ratio) || ratio <= 0) {
-    throw new Error(`applySplit: ratio must be a positive number, got ${ratio}`);
+  const str = String(value).trim();
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    if (parts.length !== 2) {
+      throw new Error(`parseSplitRatio: invalid split format "${value}" (expected "X:Y")`);
+    }
+    const left = parseFloat(parts[0]);
+    const right = parseFloat(parts[1]);
+    if (!Number.isFinite(left) || !Number.isFinite(right) || left <= 0 || right <= 0) {
+      throw new Error(`parseSplitRatio: invalid split numbers in "${value}"`);
+    }
+    // "3:1" = 3/1 = 3 (forward split)
+    // "1:2" = 1/2 = 0.5 (reverse split)
+    return left / right;
+  }
+  // Plain number as string
+  const num = parseFloat(str);
+  if (!Number.isFinite(num) || num <= 0) {
+    throw new Error(`parseSplitRatio: invalid ratio: ${value}`);
+  }
+  return num;
+}
+
+/**
+ * @typedef {Object} SplitEntry
+ * @property {string} date - ISO date string
+ * @property {number|string} [split] - Split ratio: "3:1", "1:2", or numeric (3, 0.5)
+ * @property {number} [ratio] - Numeric ratio (alternative to split)
+ */
+
+/**
+ * Apply a value split to historical time-series data.
+ * Works with stocks, net worth, company market cap, or any object with bars array.
+ *
+ * For stocks: adjusts OHLC, volume, and worth
+ * For net worth: adjusts the value field
+ * For companies: adjusts worth and per-share metrics if present
+ *
+ * @param {Object} data - Object with bars array (Stock, NetWorth, etc.)
+ * @param {Date|number|string} splitDate - When the split occurs
+ * @param {number|string} ratio - Split ratio:
+ *   - "3:1" or 3 = triple the value (e.g., stock split)
+ *   - "1:2" or 0.5 = halve the value (e.g., reverse split)
+ *   - "2:1" or 2 = double the value
+ * @param {Object} [options] - Optional configuration
+ * @param {string[]} [options.fields] - Fields to adjust (auto-detected if not provided)
+ * @returns {Object} New object with adjusted bars and split history
+ * @example
+ * // Stock 2:1 split
+ * const splitStock = applySplit(stock, '2024-06-15', '2:1');
+ *
+ * // Net worth adjustment (inheritance 3:1 wealth increase)
+ * const adjusted = applySplit(netWorth, '2024-06-15', '3:1');
+ *
+ * // Company market cap adjustment
+ * const adjustedCompany = applySplit(company, '2024-06-15', 2);
+ */
+export function applySplit(data, splitDate, ratio, options = {}) {
+  if (!data || !Array.isArray(data.bars) || data.bars.length === 0) {
+    throw new Error('applySplit: expected an object with non-empty bars array');
+  }
+
+  const numericRatio = parseSplitRatio(ratio);
+  if (numericRatio == null) {
+    throw new Error(`applySplit: invalid ratio "${ratio}"`);
   }
 
   const splitTime = new Date(splitDate).getTime();
@@ -618,7 +680,7 @@ export function applySplit(stock, splitDate, ratio) {
   }
 
   // Find the first bar at or after the split date
-  const splitIndex = stock.bars.findIndex(b => b.time >= splitTime);
+  const splitIndex = data.bars.findIndex(b => b.time >= splitTime);
   if (splitIndex === -1) {
     throw new Error(`applySplit: split date ${splitDate} is after all bars`);
   }
@@ -626,39 +688,72 @@ export function applySplit(stock, splitDate, ratio) {
     throw new Error(`applySplit: split date ${splitDate} is before or at first bar`);
   }
 
-  // Adjust historical bars (before split) by dividing by ratio
-  // For 2:1 split: old $100 becomes $50 (comparable to new $50 price)
-  const adjustedBars = stock.bars.map((b, i) => {
+  // Detect data type and fields to adjust
+  const firstBar = data.bars[0];
+  const isStock = firstBar && typeof firstBar.close === 'number';
+  const isNetWorth = firstBar && typeof firstBar.value === 'number' && !firstBar.close;
+  const isCompany = isStock && data.sharesOutstanding;
+
+  // Determine which fields to adjust
+  let fields = options.fields;
+  if (!fields) {
+    if (isStock) {
+      fields = ['open', 'high', 'low', 'close'];
+      if (isCompany) fields.push('worth');
+    } else if (isNetWorth) {
+      fields = ['value'];
+    } else {
+      // Generic: find numeric fields in first bar
+      fields = Object.keys(firstBar).filter(k =>
+        k !== 'time' && k !== 'date' && typeof firstBar[k] === 'number'
+      );
+    }
+  }
+
+  const factor = 1 / numericRatio;
+
+  // Adjust historical bars (before split)
+  const adjustedBars = data.bars.map((b, i) => {
     if (i >= splitIndex) return b; // Bars at/after split stay the same
 
-    const factor = 1 / ratio;
-    return {
-      ...b,
-      open: round2(b.open * factor),
-      high: round2(b.high * factor),
-      low: round2(b.low * factor),
-      close: round2(b.close * factor),
-      // Volume is multiplied by ratio (more shares at lower price = same value)
-      volume: Math.round(b.volume * ratio),
-      // Worth also adjusted if present
-      ...(b.worth != null ? { worth: round2(b.worth * factor) } : {})
-    };
+    const adjusted = { ...b };
+    for (const field of fields) {
+      if (b[field] != null && typeof b[field] === 'number') {
+        adjusted[field] = round2(b[field] * factor);
+      }
+    }
+
+    // For stocks: volume moves opposite to price (maintain value)
+    if (isStock && b.volume != null) {
+      adjusted.volume = Math.round(b.volume * numericRatio);
+    }
+
+    return adjusted;
   });
 
   // Build split history entry
   const splitEntry = {
-    date: stock.bars[splitIndex].date,
+    date: data.bars[splitIndex].date,
     time: splitTime,
-    ratio: ratio,
-    type: ratio > 1 ? 'forward' : 'reverse',
-    display: ratio > 1 ? `${Math.round(ratio)}:1` : `1:${Math.round(1 / ratio)}`
+    ratio: numericRatio,
+    type: numericRatio > 1 ? 'forward' : 'reverse',
+    display: numericRatio > 1
+      ? `${Math.round(numericRatio)}:1`
+      : `1:${Math.round(1 / numericRatio)}`
   };
 
-  return {
-    ...stock,
+  // Update appropriate start value based on type
+  const result = {
+    ...data,
     bars: adjustedBars,
-    startPrice: adjustedBars[0].open,
-    // Add split to history (or create new history array)
-    splits: [...(stock.splits || []), splitEntry]
+    splits: [...(data.splits || []), splitEntry]
   };
+
+  if (isStock && adjustedBars[0].open != null) {
+    result.startPrice = adjustedBars[0].open;
+  } else if (isNetWorth && adjustedBars[0].value != null) {
+    result.startValue = adjustedBars[0].value;
+  }
+
+  return result;
 }

@@ -13,6 +13,9 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] `renderMixedChart` — plot net worth + company worth + stocks together — shipped in 1.3.3
 - [x] `formatHumanNumber` — readable axis labels (5K, 10.2K, 1.5M, 2.3B) — shipped in 1.3.4
 - [x] `applySplit` — stock splits (2:1, 3:1, reverse 1:10) — shipped in 1.3.4
+- [x] `applySplit` generalized — works with net worth, companies, any time-series — shipped in 1.3.5
+- [x] `parseSplitRatio` — parse "3:1" split notation — shipped in 1.3.5
+- [x] `loadSplits` / `applySplits` — JSON split loading and batch application — shipped in 1.3.5
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)

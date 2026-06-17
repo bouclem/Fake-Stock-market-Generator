@@ -1,6 +1,7 @@
 // Public API.
 
-export { generateStock, generateMarket, generateNetWorth, toJSON, fromJSON, applySplit } from './generator.js';
+export { generateStock, generateMarket, generateNetWorth, toJSON, fromJSON, applySplit, parseSplitRatio } from './generator.js';
+export { loadSplits, loadSplitsSync, applySplits } from './splits.js';
 export { loadEvents, loadEventsSync } from './events.js';
 export { parseNumeric, formatNumeric, formatHumanNumber, cleanNumericArray } from './numeric.js';
 export {

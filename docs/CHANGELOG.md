@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.5 — 2026-06-17
+
+### Added
+- `applySplit()` now works with **any time-series data**: stocks, net worth, companies, or custom objects with bars.
+- `parseSplitRatio(value)` — parse split ratios from strings:
+  - `"3:1"` → `3` (forward split)
+  - `"1:2"` → `0.5` (reverse split)
+  - `"1:10"` → `0.1`
+  - Plain numbers work too: `2`, `0.5`
+- `loadSplits()` / `loadSplitsSync()` — load splits from JSON files or arrays, similar to events.
+- `applySplits(data, splits)` — apply multiple splits in chronological order.
+- JSON support for splits: `{ "date": "2024-06-15", "split": "3:1" }` or `{ "date": "2024-06-15", "ratio": 2 }`
+
+### Changed
+- `applySplit()` auto-detects data type and adjusts appropriate fields:
+  - Stocks: adjusts OHLC, volume, worth
+  - Net worth: adjusts value
+  - Custom objects: adjusts all numeric fields
+
 ## 1.3.4 — 2026-06-17
 
 ### Added

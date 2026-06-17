@@ -245,31 +245,80 @@ writeFileSync('alice.svg', renderNetWorthChart(nw, { theme: 'dark' }));
 
 `toJSON` / `fromJSON` work with net worth objects too — they round-trip cleanly.
 
-### `applySplit(stock, splitDate, ratio) -> Stock`
+### `applySplit(data, splitDate, ratio) -> Object`
 
-Apply a stock split (2:1, 3:1, 1:10 reverse) to historical data. Adjusts all OHLC prices before the split date so the chart remains continuous. Records split history on the stock object.
+Apply a value split to any time-series data: **stocks**, **net worth**, **companies**, or custom objects with a `bars` array. Adjusts historical values before the split date so the series remains continuous.
+
+**Ratio formats:**
+- String notation: `"3:1"`, `"2:1"`, `"1:2"`, `"1:10"`
+- Plain numbers: `3`, `2`, `0.5`, `0.1`
 
 ```js
-import { generateStock, applySplit, renderAreaChart } from 'stock-market-gen';
+import { generateStock, generateNetWorth, applySplit, renderAreaChart, renderNetWorthChart } from 'stock-market-gen';
 import { writeFileSync } from 'node:fs';
 
+// Stock split (2:1)
 const stock = generateStock({ symbol: 'NOVA', startPrice: 200, bars: 200, interval: '1d', seed: 'split' });
+const splitStock = applySplit(stock, stock.bars[100].date, '2:1');
+// Or: applySplit(stock, '2024-06-15', 2)
 
-// Apply a 2:1 split on day 100
-// Historical prices before the split are halved, volume doubled
-const splitStock = applySplit(stock, stock.bars[100].date, 2);
+// Net worth adjustment (inheritance 3:1 wealth increase)
+const person = generateNetWorth({ name: 'Alice', startValue: 100000, bars: 100, seed: 'alice' });
+const richAlice = applySplit(person, person.bars[50].date, '3:1');
 
-console.log(splitStock.splits);
-// [{ date: '...', ratio: 2, type: 'forward', display: '2:1' }]
-
-writeFileSync('split-chart.svg', renderAreaChart(splitStock));
+// Multiple splits via JSON
+const splits = [
+  { date: '2024-03-15', split: '2:1', label: 'First split' },
+  { date: '2024-09-20', split: '3:1', label: 'Second split' }
+];
 ```
 
-**Ratios:**
-- Forward splits: `2` (2:1), `3` (3:1), `4` (4:1) — price drops, shares increase
-- Reverse splits: `0.5` (1:2), `0.1` (1:10) — price rises, shares decrease
+**Auto-detection by data type:**
+- **Stocks**: adjusts `open`, `high`, `low`, `close`, `worth` (if present), and `volume`
+- **Net worth**: adjusts `value` field
+- **Companies** (stocks with `sharesOutstanding`): adjusts per-share metrics and market cap
+- **Custom objects**: adjusts all numeric fields in bars
 
-The function adjusts `open`, `high`, `low`, `close`, `volume`, and `worth` fields automatically.
+Split history is recorded in `.splits` array: `{ date, ratio, type, display }`.
+
+### `loadSplits(source) / loadSplitsSync(source) -> SplitDef[]`
+
+Load splits from JSON files, arrays, or objects — same pattern as `loadEvents()`.
+
+```js
+import { loadSplitsSync, applySplits } from 'stock-market-gen';
+
+// From JSON file
+const splits = loadSplitsSync('./splits.json');
+
+// From array
+const splits2 = loadSplitsSync([
+  { date: '2024-06-15', split: '3:1' },
+  { date: '2024-09-20', ratio: 2 }
+]);
+
+// Apply all splits in chronological order
+const adjusted = applySplits(stock, splits);
+```
+
+JSON file format (`splits.json`):
+```json
+{
+  "splits": [
+    { "date": "2024-03-15", "split": "2:1", "label": "First split" },
+    { "date": "2024-09-20", "split": "3:1" },
+    { "date": "2024-12-01", "ratio": 0.5 }
+  ]
+}
+```
+
+Or as a flat array:
+```json
+[
+  { "date": "2024-06-15", "split": "2:1" },
+  { "date": "2024-09-20", "split": "1:2" }
+]
+```
 
 ### `sharesOutstanding` and company worth
 
