@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.7 — 2026-06-17
+
+### Added
+- **Volume support** for all data types:
+  - `generateNetWorth()` now includes `volume` field on every bar (synthetic activity based on value movement)
+  - `volumes` option for custom volume data in `generateNetWorth()`
+- `renderChartWithVolume(data, type, options)` — renders charts with a volume sub-panel below:
+  - Volume displayed as colored bars (green for up, red for down)
+  - Configurable panel height via `volumeHeight` option (default 25%)
+  - Works with stocks, net worth, and any data with `volume` on bars
+  - Supports all chart types: 'line', 'area', 'bar', 'candlestick'
+
 ## 1.3.6 — 2026-06-17
 
 ### Fixed

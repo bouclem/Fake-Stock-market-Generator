@@ -954,3 +954,140 @@ export function renderMixedChart(items, options = {}) {
 
   return svgWrap(o, body);
 }
+
+/**
+ * @typedef {Object} VolumeChartOptions
+ * @property {number} [width]
+ * @property {number} [height]
+ * @property {{top:number,right:number,bottom:number,left:number}} [padding]
+ * @property {'light'|'dark'} [theme]
+ * @property {string} [title]
+ * @property {boolean} [showGrid]
+ * @property {boolean} [showAxes]
+ * @property {number} [volumeHeight] - Height of volume panel as % of total (default: 25)
+ * @property {ChartEvent[]} [events]
+ * @property {Partial<typeof THEMES.light>} [colors]
+ */
+
+/**
+ * Render a stock or net worth chart with a volume sub-panel below.
+ * Volume is displayed as bars, colored by whether value/price went up or down.
+ *
+ * @param {Stock|NetWorth} data - Stock or NetWorth object with volume on bars
+ * @param {string} [type] - Chart type: 'line', 'area', 'bar', 'candlestick' (default: 'line')
+ * @param {VolumeChartOptions} [options]
+ * @returns {string} SVG document
+ */
+export function renderChartWithVolume(data, type = 'line', options = {}) {
+  const hasVolume = data.bars && data.bars.length > 0 && data.bars[0].volume != null;
+  if (!hasVolume) {
+    throw new Error('renderChartWithVolume: data must have volume field on bars');
+  }
+
+  const o = withEventPadding(resolve(options), options?.events?.length);
+  const volumeHeightPct = Math.max(10, Math.min(40, options.volumeHeight || 25));
+
+  // Split plot area: main chart on top, volume below
+  const gap = 10; // gap between panels
+  const totalH = plotArea(o).h;
+  const mainH = Math.round(totalH * (1 - volumeHeightPct / 100) - gap);
+  const volH = totalH - mainH - gap;
+
+  const mainPlot = { x: plotArea(o).x, y: plotArea(o).y, w: plotArea(o).w, h: mainH };
+  const volPlot = { x: plotArea(o).x, y: plotArea(o).y + mainH + gap, w: plotArea(o).w, h: volH };
+
+  // Build main chart based on type
+  let mainBody = '';
+  const n = data.bars.length;
+  const tMin = data.bars[0].time;
+  const tMax = data.bars[n - 1].time;
+
+  // Value range for main chart
+  let vMin = Infinity, vMax = -Infinity;
+  for (const b of data.bars) {
+    const v = b.close ?? b.value;
+    if (v < vMin) vMin = v;
+    if (v > vMax) vMax = v;
+  }
+  if (vMin === vMax) { vMin -= 1; vMax += 1; }
+  const vPad = (vMax - vMin) * 0.05;
+  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+
+  // Volume range
+  let volMin = 0, volMax = 0;
+  for (const b of data.bars) {
+    if (b.volume > volMax) volMax = b.volume;
+  }
+  volMax = volMax * 1.1; // small padding
+  const volRange = { min: 0, max: volMax };
+
+  // Resolve events
+  const xForTime = (t) => mainPlot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * mainPlot.w;
+  const evs = resolveEvents(o.events, o, mainPlot, tMin, tMax, xForTime);
+
+  // Build main chart content
+  const axisBars = data.bars;
+  if (type === 'line' || type === 'area') {
+    const points = data.bars.map((b, i) => {
+      const x = xAt(mainPlot, i, n);
+      const y = yAt(mainPlot, b.close ?? b.value, range);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+    mainBody = `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if (type === 'area') {
+      const firstX = xAt(mainPlot, 0, n).toFixed(2);
+      const lastX = xAt(mainPlot, n - 1, n).toFixed(2);
+      const baseY = (mainPlot.y + mainPlot.h).toFixed(2);
+      const areaPoints = `${firstX},${baseY} ${points} ${lastX},${baseY}`;
+      mainBody = `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` + mainBody;
+    }
+  } else if (type === 'bar' || type === 'candlestick') {
+    // Simplified - just line for now in volume charts
+    const points = data.bars.map((b, i) => {
+      const x = xAt(mainPlot, i, n);
+      const y = yAt(mainPlot, b.close, range);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+    mainBody = `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+
+  // Build volume bars
+  const barWidth = Math.max(1, (volPlot.w / n) * 0.8);
+  const volumeBars = data.bars.map((b, i) => {
+    const x = xAt(volPlot, i, n) - barWidth / 2;
+    const h = volPlot.h * (b.volume / volRange.max);
+    const y = volPlot.y + volPlot.h - h;
+    // Color: up if value increased, down if decreased
+    const prev = i > 0 ? data.bars[i - 1] : b;
+    const currVal = b.close ?? b.value;
+    const prevVal = prev.close ?? prev.value;
+    const isUp = currVal >= prevVal;
+    const color = isUp ? o.colors.up : o.colors.down;
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${color}" opacity="0.6"/>`;
+  }).join('');
+
+  // X axis ticks (shared)
+  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 6));
+  const xLabels = [];
+  for (let i = 0; i < xTicksCount; i++) {
+    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
+    const x = xForTime(t);
+    const anchor = i === 0 ? 'start' : i === xTicksCount - 1 ? 'end' : 'middle';
+    xLabels.push(`<text x="${x.toFixed(2)}" y="${volPlot.y + volPlot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(t, false)}</text>`);
+  }
+
+  const body =
+    // Main chart axes
+    buildAxes({ ...o, yTicks: 5 }, mainPlot, range, axisBars) +
+    buildEvents(evs, plotArea(o), o) +
+    mainBody +
+    // Volume panel background line
+    `<line x1="${volPlot.x}" y1="${volPlot.y}" x2="${volPlot.x + volPlot.w}" y2="${volPlot.y}" stroke="${o.colors.grid}" stroke-width="1"/>` +
+    // Volume bars
+    volumeBars +
+    // X axis labels (shared at bottom)
+    xLabels.join('') +
+    buildTitle(o);
+
+  return svgWrap(o, body);
+}

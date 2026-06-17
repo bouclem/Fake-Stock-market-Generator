@@ -17,6 +17,8 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] `parseSplitRatio` — parse "3:1" split notation — shipped in 1.3.5
 - [x] `loadSplits` / `applySplits` — JSON split loading and batch application — shipped in 1.3.5
 - [x] Include README.md in npm package — shipped in 1.3.6
+- [x] Volume on net worth bars — shipped in 1.3.7
+- [x] `renderChartWithVolume` — volume sub-panel charts — shipped in 1.3.7
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)
@@ -24,7 +26,7 @@ Things that could ship in future versions. Nothing here is committed.
 ## Charts
 - [x] Event markers on specific dates (full-height dashed lines + top labels) — shipped in 1.3.0
 - [x] `valueMode: 'worth'` to plot company total valuation instead of per-share price — shipped in 1.3.1
-- [ ] Volume sub-panel under price charts
+- [x] Volume sub-panel under price charts — shipped in 1.3.7
 - [ ] Optional moving averages (SMA, EMA)
 - [ ] Tooltips and hover state when used in HTML pages
 - [ ] PNG export helper (likely opt-in, not bundled, to stay zero-dep)

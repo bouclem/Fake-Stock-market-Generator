@@ -12,7 +12,8 @@ export {
   renderCandlestickChart,
   renderMultiLineChart,
   renderNetWorthChart,
-  renderMixedChart
+  renderMixedChart,
+  renderChartWithVolume
 } from './svg.js';
 export { renderHtmlPage } from './html.js';
 export { createRng } from './prng.js';

@@ -408,6 +408,7 @@ function rebuildOne(obj) {
  * @property {number} time   - Unix epoch in milliseconds
  * @property {string} date   - ISO 8601 timestamp
  * @property {number} value  - Net worth value at this point in time
+ * @property {number} volume - Synthetic activity/volume indicator for this period
  */
 
 /**
@@ -429,6 +430,7 @@ function rebuildOne(obj) {
  * @property {Date|number|string} [startDate]  - First bar timestamp
  * @property {number|string} [seed]            - Reproducible output
  * @property {number[]} [values]               - Custom net worth values, one per bar
+ * @property {number[]} [volumes]              - Custom volume values, one per bar (optional)
  */
 
 const NET_WORTH_DEFAULTS = {
@@ -510,24 +512,45 @@ export function generateNetWorth(options = {}) {
 
   const bars = new Array(barCount);
 
+  // Validate volumes if provided
+  if (opts.volumes !== undefined) {
+    if (!Array.isArray(opts.volumes) || opts.volumes.length !== barCount) {
+      throw new Error(`"volumes" must be an array of the same length as bars/values (${barCount})`);
+    }
+    for (let i = 0; i < opts.volumes.length; i++) {
+      if (!Number.isFinite(opts.volumes[i]) || opts.volumes[i] < 0) {
+        throw new Error(`"volumes[${i}]" must be a non-negative finite number, got ${opts.volumes[i]}`);
+      }
+    }
+  }
+
   if (opts.values) {
     for (let i = 0; i < barCount; i++) {
       const time = stepTime(startTime, intervalSpec, i);
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        value: round2(parseNumeric(opts.values[i]))
+        value: round2(parseNumeric(opts.values[i])),
+        volume: opts.volumes ? Math.round(opts.volumes[i]) : Math.round(100 + rng.next() * 900)
       };
     }
   } else {
     let value = startValue;
+    let prevValue = startValue;
     for (let i = 0; i < barCount; i++) {
       const time = stepTime(startTime, intervalSpec, i);
+      // Synthetic volume based on value movement (more activity when net worth changes more)
+      const move = Math.abs(value - prevValue) / prevValue;
+      const volume = opts.volumes
+        ? Math.round(opts.volumes[i])
+        : Math.max(1, Math.round((100 + rng.next() * 900) * (1 + move * 50)));
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        value: round2(value)
+        value: round2(value),
+        volume
       };
+      prevValue = value;
       value = Math.max(PRICE_FLOOR, value * Math.exp(drift2 + diffusion * rng.gauss()));
     }
   }
