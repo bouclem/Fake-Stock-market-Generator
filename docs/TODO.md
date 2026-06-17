@@ -16,6 +16,7 @@ Things that could ship in future versions. Nothing here is committed.
 - [x] `applySplit` generalized — works with net worth, companies, any time-series — shipped in 1.3.5
 - [x] `parseSplitRatio` — parse "3:1" split notation — shipped in 1.3.5
 - [x] `loadSplits` / `applySplits` — JSON split loading and batch application — shipped in 1.3.5
+- [x] Include README.md in npm package — shipped in 1.3.6
 - [ ] Skip weekends / holidays for daily bars
 - [ ] Correlated stocks within a market (sector cohorts move together)
 - [ ] Event injection that affects price data (earnings spikes, gaps, splits)

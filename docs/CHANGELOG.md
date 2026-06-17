@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## 1.3.6 — 2026-06-17
+
+### Fixed
+- Added `README.md` to npm package `files` array so it appears on the npm registry page.
+
 ## 1.3.5 — 2026-06-17
 
 ### Added

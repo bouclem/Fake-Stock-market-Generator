@@ -32,11 +32,12 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - single stocks or whole markets
 - OHLCV bars (open, high, low, close, volume)
 - **net worth time series** for a person or entity (`generateNetWorth`)
+- **company total worth** via `sharesOutstanding` — each bar gets a `worth` field (`close × shares`)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
 - pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1y`)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
-- save to JSON and reload it later — output is plain data (net worth included)
+- save to JSON and reload it later — output is plain data (net worth + worth fields included)
 - pass a `stocks` array to define each company yourself
 - compare several companies on a single chart with `renderMultiLineChart` — including translucent gradient fills under each line
 - sub-cent precision: prices below `$1` keep 4 decimals (below `$0.01` keeps 6), so crypto-style series stay readable
@@ -52,7 +53,9 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 
 All renderers return a complete SVG string. Save it to a file, drop it into HTML, or pipe it anywhere.
 
-Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart.
+Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart. Load events from a separate `.json` file with `loadEvents()`.
+
+All single-stock renderers support `valueMode: 'worth'` to plot total company valuation instead of per-share price.
 
 Default chart size is **1200 × 600** for better readability and more room for date labels.
 
@@ -224,7 +227,185 @@ Generate a net worth time series for a person or entity. Uses GBM with wealth-ac
 | `seed`        | `number \| string`         | random               | reproducible |
 | `values`      | `number[]`                 | none                 | custom net worth values |
 
-`toJSON` / `fromJSON` work with net worth objects too.
+```js
+import { generateNetWorth, renderNetWorthChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const nw = generateNetWorth({
+  name: 'Alice',
+  startValue: 50000,
+  bars: 120,
+  interval: '1mo',
+  startDate: '2015-01-01',
+  seed: 'alice'
+});
+
+writeFileSync('alice.svg', renderNetWorthChart(nw, { theme: 'dark' }));
+```
+
+`toJSON` / `fromJSON` work with net worth objects too — they round-trip cleanly.
+
+### `applySplit(data, splitDate, ratio) -> Object`
+
+Apply a value split to any time-series data: **stocks**, **net worth**, **companies**, or custom objects with a `bars` array. Adjusts historical values before the split date so the series remains continuous.
+
+**Ratio formats:**
+- String notation: `"3:1"`, `"2:1"`, `"1:2"`, `"1:10"`
+- Plain numbers: `3`, `2`, `0.5`, `0.1`
+
+```js
+import { generateStock, generateNetWorth, applySplit, renderAreaChart, renderNetWorthChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+// Stock split (2:1)
+const stock = generateStock({ symbol: 'NOVA', startPrice: 200, bars: 200, interval: '1d', seed: 'split' });
+const splitStock = applySplit(stock, stock.bars[100].date, '2:1');
+// Or: applySplit(stock, '2024-06-15', 2)
+
+// Net worth adjustment (inheritance 3:1 wealth increase)
+const person = generateNetWorth({ name: 'Alice', startValue: 100000, bars: 100, seed: 'alice' });
+const richAlice = applySplit(person, person.bars[50].date, '3:1');
+
+// Multiple splits via JSON
+const splits = [
+  { date: '2024-03-15', split: '2:1', label: 'First split' },
+  { date: '2024-09-20', split: '3:1', label: 'Second split' }
+];
+```
+
+**Auto-detection by data type:**
+- **Stocks**: adjusts `open`, `high`, `low`, `close`, `worth` (if present), and `volume`
+- **Net worth**: adjusts `value` field
+- **Companies** (stocks with `sharesOutstanding`): adjusts per-share metrics and market cap
+- **Custom objects**: adjusts all numeric fields in bars
+
+Split history is recorded in `.splits` array: `{ date, ratio, type, display }`.
+
+### `loadSplits(source) / loadSplitsSync(source) -> SplitDef[]`
+
+Load splits from JSON files, arrays, or objects — same pattern as `loadEvents()`.
+
+```js
+import { loadSplitsSync, applySplits } from 'stock-market-gen';
+
+// From JSON file
+const splits = loadSplitsSync('./splits.json');
+
+// From array
+const splits2 = loadSplitsSync([
+  { date: '2024-06-15', split: '3:1' },
+  { date: '2024-09-20', ratio: 2 }
+]);
+
+// Apply all splits in chronological order
+const adjusted = applySplits(stock, splits);
+```
+
+JSON file format (`splits.json`):
+```json
+{
+  "splits": [
+    { "date": "2024-03-15", "split": "2:1", "label": "First split" },
+    { "date": "2024-09-20", "split": "3:1" },
+    { "date": "2024-12-01", "ratio": 0.5 }
+  ]
+}
+```
+
+Or as a flat array:
+```json
+[
+  { "date": "2024-06-15", "split": "2:1" },
+  { "date": "2024-09-20", "split": "1:2" }
+]
+```
+
+### `sharesOutstanding` and company worth
+
+Pass `sharesOutstanding` to `generateStock()` and every bar gets a `worth` field:
+
+```js
+const stock = generateStock({
+  symbol: 'NOVA',
+  sharesOutstanding: 50_000_000,
+  startPrice: 250,
+  bars: 365,
+  interval: '1d',
+  seed: 'nova'
+});
+
+console.log(stock.bars[0].worth); // ~12.5B (250 * 50M)
+```
+
+Render with `valueMode: 'worth'` to plot the valuation instead of the price:
+
+```js
+writeFileSync('nova-worth.svg', renderAreaChart(stock, { valueMode: 'worth', theme: 'dark' }));
+```
+
+### `loadEvents(source)` / `loadEventsSync(source)`
+
+Normalise the `events` option from any source — array, `.json` file path, single object, or envelope:
+
+```js
+const events = loadEvents('milestones.json');
+writeFileSync('chart.svg', renderLineChart(stock, { events }));
+```
+
+The JSON file can be a plain array or an envelope `{ name, events: [...] }`. `loadEvents` also accepts an array (passthrough), a single event object, or `null`/`undefined` (returns `[]`).
+
+### `parseNumeric(value)` / `formatNumeric(value)`
+
+Write readable numbers with underscores or suffixes in JSON config files. `parseNumeric` converts them to actual numbers:
+
+```js
+import { parseNumeric, formatNumeric, generateNetWorth } from 'stock-market-gen';
+
+// Underscore notation (readable in JSON)
+parseNumeric('1_200_000');      // 1200000
+parseNumeric('15_000_000_000'); // 15000000000
+
+// Suffix shorthand
+parseNumeric('1.5M');  // 1500000
+parseNumeric('2.3B');  // 2300000000
+parseNumeric('500K');  // 500000
+
+// Format numbers back with underscores
+formatNumeric(1200000);  // "1_200_000"
+
+// Format for human-readable display (axis labels)
+formatHumanNumber(100);       // "100"
+formatHumanNumber(5000);      // "5K"
+formatHumanNumber(10200);     // "10.2K"
+formatHumanNumber(1500000);   // "1.5M"
+formatHumanNumber(2300000000); // "2.3B"
+formatHumanNumber(1e12);      // "1T"
+```
+
+All chart axes automatically use `formatHumanNumber` for large values (≥5000), so market cap charts show "15.2M" instead of "15200000".
+
+Use in JSON configs:
+```json
+{
+  "startDate": "2024-01-02",
+  "interval": "1d",
+  "values": [
+    "15_000_000_000",
+    "15_500_000_000",
+    "16_200_000_000"
+  ]
+}
+```
+
+Then load and parse:
+```js
+const config = JSON.parse(readFileSync('config.json', 'utf8'));
+const netWorth = generateNetWorth({
+  values: config.values,  // underscore strings auto-parsed
+  startDate: config.startDate,
+  interval: config.interval
+});
+```
 
 ### `renderChart(stock, type, options)`
 
@@ -232,7 +413,69 @@ Generate a net worth time series for a person or entity. Uses GBM with wealth-ac
 
 ### `renderNetWorthChart(netWorth, options) -> string`
 
-Render a `NetWorth` object as a line+area SVG chart.
+Render a `NetWorth` object as a line+area SVG chart. Accepts the same options as all other renderers.
+
+### `renderMixedChart(items, options) -> string`
+
+Plot **NetWorth**, **company market cap**, and **stock prices** together on a single chart. All series are normalized to the same scale for comparison.
+
+```js
+import { generateStock, generateNetWorth, renderMixedChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+// A person's net worth
+const person = generateNetWorth({
+  name: 'Alice',
+  startValue: '5_000_000',
+  bars: 30,
+  interval: '1d',
+  seed: 'alice'
+});
+
+// A company with market cap (sharesOutstanding)
+const company = generateStock({
+  symbol: 'NOVA',
+  sharesOutstanding: '100_000_000',
+  startPrice: 150,
+  bars: 30,
+  interval: '1d',
+  seed: 'nova'
+});
+
+// A regular stock (price only)
+const stock = generateStock({
+  symbol: 'TECH',
+  startPrice: 200,
+  bars: 30,
+  interval: '1d',
+  seed: 'tech'
+});
+
+// Plot all three together
+const svg = renderMixedChart([
+  { data: person, label: 'Alice Net Worth', valueField: 'value' },
+  { data: company, label: 'NOVA Market Cap', valueField: 'worth' },
+  { data: stock, label: 'TECH Stock Price', valueField: 'close' }
+], {
+  mode: 'normalized',  // 'normalized' | 'percent' | 'absolute'
+  theme: 'light',
+  width: 1400,
+  height: 700
+});
+
+writeFileSync('comparison.svg', svg);
+```
+
+**Modes:**
+- `'normalized'` (default) — rebases all series to 100 at their start dates
+- `'percent'` — shows percent change from start (0% = start value)
+- `'absolute'` — raw values (only works if all items are similar magnitude)
+
+**Item options:**
+- `data` — a `NetWorth` or `Stock` object
+- `valueField` — `'value'` (net worth), `'worth'` (market cap), `'close'` (stock price), or `'auto'` (picks best available)
+- `label` — custom legend label
+- `color` — custom line color
 
 Chart options:
 
@@ -253,6 +496,24 @@ Chart options:
     { date: '2024-07-01', label: 'Split' }
   ]
 }
+```
+
+#### Events
+
+All chart renderers accept an `events` option — an array of `{ date, label, color? }` objects. Each event gets a full-height dashed vertical line and a short label at the top of the chart. The chart's top padding is automatically increased to keep labels clear of the title.
+
+```js
+import { generateStock, renderLineChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const stock = generateStock({ bars: 365, interval: '1d', startDate: '2024-01-01', seed: 'ev' });
+writeFileSync('events.svg', renderLineChart(stock, {
+  events: [
+    { date: '2024-02-14', label: 'Earnings', color: '#f59e0b' },
+    { date: '2024-05-20', label: 'Split',    color: '#7c3aed' },
+    { date: '2024-10-01', label: 'CEO change' }
+  ]
+}));
 ```
 
 ### `renderMultiLineChart(stocks, options) -> string`
@@ -462,8 +723,6 @@ const b = generateStock({ bars: 50, seed: 'pinned' });
 ```
 
 Drop the seed and you get fresh random data every run.
-
-## Recipes
 
 ### Compare multiple companies with gradient area fills
 
