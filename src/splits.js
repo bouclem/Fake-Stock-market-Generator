@@ -2,7 +2,6 @@
 // Supports loading splits from JSON files, arrays, or single objects.
 // Splits can be specified as { date, split: "3:1" } or { date, ratio: 3 }.
 
-import { readFileSync } from 'node:fs';
 import { parseSplitRatio, applySplit } from './generator.js';
 
 /**
@@ -15,6 +14,14 @@ import { parseSplitRatio, applySplit } from './generator.js';
 
 function isNode() {
   return typeof process !== 'undefined' && process.versions && process.versions.node;
+}
+
+function displayRatio(ratio) {
+  // Print the exact ratio instead of rounding to integers, so 1.5 shows
+  // as "1.5:1" and 0.4 as "1:2.5" rather than the misleading "2:1" / "1:3".
+  return ratio > 1
+    ? `${parseFloat(ratio.toFixed(4))}:1`
+    : `1:${parseFloat((1 / ratio).toFixed(4))}`;
 }
 
 function normalizeSplitEntry(entry) {
@@ -31,12 +38,29 @@ function normalizeSplitEntry(entry) {
   return {
     date: String(entry.date),
     ratio,
-    display: ratio > 1
-      ? `${Math.round(ratio)}:1`
-      : `1:${Math.round(1 / ratio)}`,
+    display: displayRatio(ratio),
     type: ratio > 1 ? 'forward' : 'reverse',
     label: entry.label || null
   };
+}
+
+// Shared post-load normalization for both the sync and async loaders.
+function normalizeSplits(raw) {
+  if (!Array.isArray(raw)) {
+    if (raw && typeof raw === 'object') {
+      // Could be an envelope { splits: [...] } or a single split
+      if (Array.isArray(raw.splits)) {
+        raw = raw.splits;
+      } else if (raw.date) {
+        raw = [raw];
+      } else {
+        return [];
+      }
+    } else {
+      return [];
+    }
+  }
+  return raw.map(normalizeSplitEntry).filter(Boolean);
 }
 
 /**
@@ -57,30 +81,19 @@ export function loadSplitsSync(source) {
 
   // If it's a string, treat as JSON file path
   if (typeof source === 'string') {
-    if (!isNode()) {
-      throw new Error('loadSplitsSync with file path only works in Node.js');
+    if (!_readFileSync) {
+      throw new Error('loadSplitsSync: filesystem access is not available in this environment (browser?)');
     }
-    const content = readFileSync(source, 'utf-8');
+    let content;
+    try {
+      content = _readFileSync(source, 'utf-8');
+    } catch (err) {
+      throw new Error(`loadSplitsSync: could not read "${source}": ${err.message}`);
+    }
     raw = JSON.parse(content);
   }
 
-  // Handle single object
-  if (!Array.isArray(raw)) {
-    if (raw && typeof raw === 'object') {
-      // Could be an envelope { splits: [...] } or a single split
-      if (Array.isArray(raw.splits)) {
-        raw = raw.splits;
-      } else if (raw.date) {
-        raw = [raw];
-      } else {
-        return [];
-      }
-    } else {
-      return [];
-    }
-  }
-
-  return raw.map(normalizeSplitEntry).filter(Boolean);
+  return normalizeSplits(raw);
 }
 
 /**
@@ -108,22 +121,7 @@ export async function loadSplits(source) {
     }
   }
 
-  // Handle single object
-  if (!Array.isArray(raw)) {
-    if (raw && typeof raw === 'object') {
-      if (Array.isArray(raw.splits)) {
-        raw = raw.splits;
-      } else if (raw.date) {
-        raw = [raw];
-      } else {
-        return [];
-      }
-    } else {
-      return [];
-    }
-  }
-
-  return raw.map(normalizeSplitEntry).filter(Boolean);
+  return normalizeSplits(raw);
 }
 
 /**
@@ -150,4 +148,12 @@ export function applySplits(data, splits) {
   return sorted.reduce((current, split) => {
     return applySplit(current, split.date, split.ratio);
   }, data);
+}
+
+let _readFileSync = null;
+try {
+  // Top-level try so bundlers can tree-shake. Only resolves in Node.js.
+  _readFileSync = (await import('node:fs')).readFileSync;
+} catch (_) {
+  // Browser environment — file reading is not available.
 }

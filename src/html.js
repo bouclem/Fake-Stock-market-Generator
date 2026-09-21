@@ -195,14 +195,18 @@ function buildStyles(theme) {
 }
 
 function buildStats(stock) {
-  const closes = stock.bars.map((b) => b.close);
-  const highs = stock.bars.map((b) => b.high);
-  const lows = stock.bars.map((b) => b.low);
-  const volumes = stock.bars.map((b) => b.volume);
-  const high = Math.max(...highs);
-  const low = Math.min(...lows);
-  const avgVolume = volumes.reduce((s, n) => s + n, 0) / volumes.length;
-  const last = closes[closes.length - 1];
+  // Iterated instead of Math.max(...bars) — spreading a very large bars array
+  // would overflow the call stack.
+  let high = -Infinity;
+  let low = Infinity;
+  let volSum = 0;
+  for (const b of stock.bars) {
+    if (b.high > high) high = b.high;
+    if (b.low < low) low = b.low;
+    volSum += b.volume;
+  }
+  const avgVolume = volSum / stock.bars.length;
+  const last = stock.bars[stock.bars.length - 1].close;
 
   return [
     ['Last',         fmt(last)],

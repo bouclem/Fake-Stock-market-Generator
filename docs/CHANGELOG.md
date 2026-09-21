@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented here.
 
+## 2.0.0 — 2026-09-21
+
+### Breaking
+- **Interval units changed**: `"m"` now means **month** (calendar-aware, same as `"mo"`). Use `"min"` for minutes. Previously `"1m"` produced 1-minute bars.
+
+### Fixed
+- The CommonJS build (`dist/index.cjs`) was broken — `export async function` and top-level `await import()` were not translated, so `require('stock-market-gen')` threw a SyntaxError.
+- `splits.js` statically imported `node:fs`, which broke the package in browsers/bundlers. It now uses the same guarded dynamic import as `events.js`.
+- `cleanJson()` no longer strips underscores inside JSON string literals (e.g. `{"symbol": "A1_000"}` kept its value mangled to `"A1000"`).
+- `stepTime()` clamps to the last day of shorter months — `Jan 31 + 1mo` is now `Feb 29` instead of overflowing to `Mar 2`; `Feb 29 + 1y` lands on `Feb 28` in non-leap years.
+- `formatHumanNumber()` promotes rounding overflow to the next suffix — `999_999` now renders `1M` instead of `1000K`.
+- `renderChartWithVolume()` produced `NaN` coordinates for net-worth data with `bar`/`candlestick` types, and silently drew a line for stocks. It now renders real OHLC bars/candles for stock data and falls back to a line only for single-value series.
+- Line/area/net-worth/volume charts now place points by timestamp, so event markers align with irregularly spaced bars.
+- `renderLineChart`/`renderAreaChart`/`renderBarChart`/`renderCandlestickChart` now validate input and throw a clear error for empty/missing bars instead of a cryptic TypeError. `valueMode: 'worth'` on OHLC charts throws a descriptive error instead of drawing degenerate candles.
+- All renderers normalise `events` through `loadEventsSync`, so a `".json"` path or a single event object works everywhere.
+- User-supplied colors (`colors` overrides, event colors, series colors) are XML-escaped before being written into SVG attributes.
+- `applySplit()` copies post-split bars instead of sharing references with the input, and `display` shows exact ratios (`1.5:1`) instead of rounding to integers.
+- `fromJSON()` preserves the `splits` history added by `applySplit()`.
+- Default `startTime` for calendar intervals (`1mo`/`1m`/`1y`) is now computed by stepping back calendar-aware, so default series start on calendar boundaries.
+- `renderMultiLineChart`/`renderMixedChart` throw on unknown `mode` values instead of silently falling back.
+- `buildStats()` no longer spreads the bars array into `Math.max()` (stack overflow on very large series).
+- `loadSplits()`/`loadSplitsSync()` share one normalization path.
+
+### Added
+- `sharesOutstanding` and net-worth `values` accept readable strings like `"1.5M"`, `"1_500_000"`, `"2B"`.
+- Real browser bundle at `dist/browser.js` (single-file ESM, no Node imports) via `scripts/build-browser.js`, wired through the `browser` field and `exports` conditions.
+- `src/index.d.ts` type declarations for the public API.
+- Test suite (`node --test`) covering generation, intervals, numerics, splits/events, rendering, and both built bundles.
+- `"sideEffects": false` for better tree-shaking.
+
+### Removed
+- Dead code: unused `xAt`/`withEventPadding` helpers, duplicated time-domain blocks in OHLC renderers, unreachable `xTicks`/`yTicks` fallbacks, the never-rendered `yLabel`, and unused accumulators.
+
 ## 1.3.7 — 2026-06-17
 
 ### Added

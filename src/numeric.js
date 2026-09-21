@@ -78,24 +78,43 @@ export function cleanNumericArray(arr) {
 export function cleanJson(jsonString) {
   if (!jsonString || typeof jsonString !== 'string') return jsonString;
 
-  // Match numeric literals including underscores:
-  // - 10_500 (integer with underscores)
-  // - 1_200_000.50 (float with underscores in integer part)
-  // - 1.5e6_000 (scientific notation - rare but possible)
-  // Also matches negative numbers: -10_500
-  //
-  // Regex explanation:
-  // -?            optional negative sign
-  // \d[\d_]*      digits with possible underscores (integer part)
-  // (?:\.\d[\d_]*)? optional decimal part
-  // (?:[eE][+-]?\d+)? optional exponent
-  return jsonString.replace(/-?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?/g, (match) => {
-    // If it has underscores, remove them
-    if (match.includes('_')) {
-      return match.replace(/_/g, '');
+  // Scan char-by-char and only strip underscores from numeric literals that
+  // appear OUTSIDE string values — a blanket regex would corrupt strings like
+  // { "symbol": "A1_000" }.
+  const NUM_RE = /^-?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?/;
+  let out = '';
+  let inString = false;
+
+  for (let i = 0; i < jsonString.length; i++) {
+    const ch = jsonString[i];
+
+    if (inString) {
+      out += ch;
+      if (ch === '\\') {
+        // Escape sequence: copy the next char verbatim too.
+        if (i + 1 < jsonString.length) out += jsonString[++i];
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
     }
-    return match;
-  });
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+
+    const m = NUM_RE.exec(jsonString.slice(i));
+    if (m) {
+      out += m[0].includes('_') ? m[0].replace(/_/g, '') : m[0];
+      i += m[0].length - 1;
+      continue;
+    }
+
+    out += ch;
+  }
+  return out;
 }
 
 /**
@@ -153,14 +172,26 @@ export function formatHumanNumber(value, precision = 1) {
     return String(value);
   }
 
-  // Find appropriate suffix
-  for (const { threshold, suffix, divisor } of HUMAN_SUFFIXES) {
+  // Find appropriate suffix (HUMAN_SUFFIXES is ordered largest-first, so the
+  // first match is the biggest applicable tier).
+  for (let i = 0; i < HUMAN_SUFFIXES.length; i++) {
+    const { threshold, suffix, divisor } = HUMAN_SUFFIXES[i];
     if (abs >= threshold) {
       const scaled = value / divisor;
       // Don't show decimals for whole numbers
-      const rounded = Math.abs(scaled - Math.round(scaled)) < 0.05
+      let rounded = Math.abs(scaled - Math.round(scaled)) < 0.05
         ? Math.round(scaled)
         : parseFloat(scaled.toFixed(precision));
+      // Rounding can overflow into the next tier (999_999 -> "1000K");
+      // promote to the larger suffix instead ("1M").
+      if (Math.abs(rounded) >= 1000 && i > 0) {
+        const up = HUMAN_SUFFIXES[i - 1];
+        const upScaled = value / up.divisor;
+        rounded = Math.abs(upScaled - Math.round(upScaled)) < 0.05
+          ? Math.round(upScaled)
+          : parseFloat(upScaled.toFixed(precision));
+        return rounded + up.suffix;
+      }
       return rounded + suffix;
     }
   }

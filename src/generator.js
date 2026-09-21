@@ -50,7 +50,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number} [drift]                 - Annualised drift, e.g. 0.05 = +5%/year
  * @property {number} [volatility]            - Annualised volatility, e.g. 0.3 = 30%/year
  * @property {number} [bars]                  - Number of bars to generate (default: 100)
- * @property {number|string} [interval]       - Bar size; ms or "1m"/"1h"/"1d"/"1w"/"1mo"/"1y"
+ * @property {number|string} [interval]       - Bar size; ms or "1min"/"1h"/"1d"/"1w"/"1mo"/"1m"/"1y" ("m" = month, "min" = minute)
  * @property {Date|number|string} [startDate] - First bar timestamp (default: now - bars*interval)
  * @property {number|string} [seed]           - Reproducible output
  * @property {'stock'|'crypto'} [kind]         - Sets defaults for price range, drift and volatility (default: 'stock')
@@ -60,8 +60,10 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {Bar[]} [ohlc]                   - Full custom bars. Each entry must
  *   have `open`, `high`, `low`, `close`. `time`/`date`/`volume` are filled in if
  *   missing. Useful for round-tripping a previously generated stock.
- * @property {number} [sharesOutstanding]      - Total shares outstanding. When set, each bar gets a `worth` field
- *   equal to `close × sharesOutstanding`, representing total company valuation.
+ * @property {number|string} [sharesOutstanding] - Total shares outstanding; accepts
+ *   numbers and strings like "1_500_000" or "1.5M". When set, each bar gets a
+ *   `worth` field equal to `close × sharesOutstanding`, representing total
+ *   company valuation.
  */
 
 const DEFAULTS = {
@@ -175,9 +177,11 @@ function validateOptions(opts) {
   if (opts.prices !== undefined && opts.ohlc !== undefined) {
     throw new Error(`Pass either "prices" or "ohlc", not both`);
   }
-  if (opts.sharesOutstanding !== undefined &&
-      (!Number.isFinite(opts.sharesOutstanding) || opts.sharesOutstanding <= 0)) {
-    throw new Error(`"sharesOutstanding" must be a positive finite number, got ${opts.sharesOutstanding}`);
+  if (opts.sharesOutstanding !== undefined) {
+    const v = parseNumeric(opts.sharesOutstanding);
+    if (!Number.isFinite(v) || v <= 0) {
+      throw new Error(`"sharesOutstanding" must be a positive number, got ${opts.sharesOutstanding}`);
+    }
   }
 }
 
@@ -230,7 +234,7 @@ export function generateStock(options = {}) {
   const startTime =
     opts.startDate !== undefined
       ? new Date(opts.startDate).getTime()
-      : Date.now() - barCount * intervalMs;
+      : stepTime(Date.now(), intervalSpec, -barCount);
 
   const bars = new Array(barCount);
   let firstOpen;
@@ -380,18 +384,20 @@ export function fromJSON(input) {
 }
 
 function rebuildNetWorth(obj) {
-  return generateNetWorth({
+  const nw = generateNetWorth({
     name: obj.name ?? undefined,
     startValue: obj.startValue,
     interval: obj.interval,
     values: obj.bars.map((b) => b.value),
     startDate: obj.bars[0]?.time
   });
+  if (Array.isArray(obj.splits)) nw.splits = obj.splits;
+  return nw;
 }
 
 function rebuildOne(obj) {
   // Reuse the OHLC path so we get full validation for free.
-  return generateStock({
+  const stock = generateStock({
     symbol: obj.symbol,
     name: obj.name ?? undefined,
     sector: obj.sector ?? undefined,
@@ -401,6 +407,8 @@ function rebuildOne(obj) {
     sharesOutstanding: obj.sharesOutstanding ?? undefined,
     ohlc: obj.bars
   });
+  if (Array.isArray(obj.splits)) stock.splits = obj.splits;
+  return stock;
 }
 
 /**
@@ -426,10 +434,11 @@ function rebuildOne(obj) {
  * @property {number} [drift]                  - Annualised drift (default: random +2% to +15%)
  * @property {number} [volatility]             - Annualised volatility (default: random 5%–25%)
  * @property {number} [bars]                   - Number of data points (default: 100)
- * @property {number|string} [interval]        - Bar size; ms or "1d"/"1w"/"1mo"/"1y" etc.
+ * @property {number|string} [interval]        - Bar size; ms or "1d"/"1w"/"1mo"/"1m"/"1y" etc. ("m" = month, "min" = minute)
  * @property {Date|number|string} [startDate]  - First bar timestamp
  * @property {number|string} [seed]            - Reproducible output
- * @property {number[]} [values]               - Custom net worth values, one per bar
+ * @property {(number|string)[]} [values]      - Custom net worth values, one per bar;
+ *   strings like "1_500_000" or "1.5M" are accepted
  * @property {number[]} [volumes]              - Custom volume values, one per bar (optional)
  */
 
@@ -471,8 +480,9 @@ export function generateNetWorth(options = {}) {
       throw new Error(`"values" must be a non-empty array of numbers`);
     }
     for (let i = 0; i < opts.values.length; i++) {
-      if (!isPositiveNumber(opts.values[i])) {
-        throw new Error(`"values[${i}]" must be a positive finite number, got ${opts.values[i]}`);
+      const v = parseNumeric(opts.values[i]);
+      if (!Number.isFinite(v) || v <= 0) {
+        throw new Error(`"values[${i}]" must be a positive number, got ${opts.values[i]}`);
       }
     }
   }
@@ -492,7 +502,7 @@ export function generateNetWorth(options = {}) {
   const startTime =
     opts.startDate !== undefined
       ? new Date(opts.startDate).getTime()
-      : Date.now() - barCount * intervalMs;
+      : stepTime(Date.now(), intervalSpec, -barCount);
 
   // Start value: log-uniform between 10k and 5M if not given
   let startValue;
@@ -735,9 +745,10 @@ export function applySplit(data, splitDate, ratio, options = {}) {
 
   const factor = 1 / numericRatio;
 
-  // Adjust historical bars (before split)
+  // Adjust historical bars (before split). Every bar is copied so the result
+  // never shares object references with the input data.
   const adjustedBars = data.bars.map((b, i) => {
-    if (i >= splitIndex) return b; // Bars at/after split stay the same
+    if (i >= splitIndex) return { ...b }; // Bars at/after split stay the same
 
     const adjusted = { ...b };
     for (const field of fields) {
@@ -754,15 +765,16 @@ export function applySplit(data, splitDate, ratio, options = {}) {
     return adjusted;
   });
 
-  // Build split history entry
+  // Build split history entry. Display the exact ratio (1.5 -> "1.5:1",
+  // 0.4 -> "1:2.5") instead of rounding to integers.
   const splitEntry = {
     date: data.bars[splitIndex].date,
     time: splitTime,
     ratio: numericRatio,
     type: numericRatio > 1 ? 'forward' : 'reverse',
     display: numericRatio > 1
-      ? `${Math.round(numericRatio)}:1`
-      : `1:${Math.round(1 / numericRatio)}`
+      ? `${parseFloat(numericRatio.toFixed(4))}:1`
+      : `1:${parseFloat((1 / numericRatio).toFixed(4))}`
   };
 
   // Update appropriate start value based on type

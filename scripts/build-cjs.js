@@ -13,12 +13,12 @@ const outDir = join(root, 'dist');
 function toCjs(source) {
   let s = source;
 
-  // export function foo  ->  function foo (recorded for module.exports)
+  // export function foo / export async function foo  ->  function foo (recorded)
   const named = new Set();
 
-  s = s.replace(/^export\s+function\s+(\w+)/gm, (_m, name) => {
+  s = s.replace(/^export\s+(async\s+)?function\s+(\w+)/gm, (_m, asyncKw, name) => {
     named.add(name);
-    return `function ${name}`;
+    return `${asyncKw || ''}function ${name}`;
   });
 
   s = s.replace(/^export\s+(const|let|var)\s+(\w+)/gm, (_m, kw, name) => {
@@ -63,6 +63,14 @@ function toCjs(source) {
   s = s.replace(
     /^import\s+(\w+)\s+from\s+['"]([^'"]+)['"];?/gm,
     (_m, name, path) => `const ${name} = require('${path}');`
+  );
+
+  // await import('x') -> require('x')
+  // Covers the top-level await in events.js/splits.js (illegal in CJS) and
+  // dynamic imports inside async functions alike — require() works in both.
+  s = s.replace(
+    /await\s+import\(\s*(['"])([^'"]+)\1\s*\)/g,
+    (_m, _q, path) => `require('${path}')`
   );
 
   if (named.size > 0) {

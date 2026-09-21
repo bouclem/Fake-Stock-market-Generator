@@ -3,6 +3,7 @@
 // a .svg file or inline into an HTML page.
 
 import { formatHumanNumber } from './numeric.js';
+import { loadEventsSync } from './events.js';
 
 const THEMES = {
   light: {
@@ -27,7 +28,7 @@ const THEMES = {
   }
 };
 
-const DEFAULTS = {
+const CHART_DEFAULTS = {
   width: 1200,
   height: 600,
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
@@ -64,11 +65,34 @@ const DEFAULTS = {
  */
 
 function resolve(options) {
-  const o = { ...DEFAULTS, ...options };
-  o.padding = { ...DEFAULTS.padding, ...(options?.padding || {}) };
+  const o = { ...CHART_DEFAULTS, ...options };
+  o.padding = { ...CHART_DEFAULTS.padding, ...(options?.padding || {}) };
   const baseTheme = THEMES[o.theme] || THEMES.light;
   o.colors = { ...baseTheme, ...(options?.colors || {}) };
+  // Colors land in SVG attributes — escape them so a crafted color string
+  // can't break out of the attribute and inject markup.
+  for (const k in o.colors) o.colors[k] = escapeXml(o.colors[k]);
+  // Normalise the events source so callers can pass an array, a single
+  // event object, an envelope, or a ".json" path (Node) interchangeably.
+  o.events = loadEventsSync(o.events);
+  if (o.events.length) o.padding.top += EVENT_TOP_PAD;
   return o;
+}
+
+function assertBars(stock, fn) {
+  if (!stock || !Array.isArray(stock.bars) || stock.bars.length === 0) {
+    throw new Error(`${fn}: expected a stock with a non-empty bars array`);
+  }
+}
+
+// Evenly spaced synthetic bars used only for X-axis tick labels — keeps the
+// labels aligned with the time-mapped points.
+function makeAxisBars(tMin, tMax, count) {
+  const bars = [];
+  for (let i = 0; i < count; i++) {
+    bars.push({ time: tMin + (i / (count - 1)) * (tMax - tMin) });
+  }
+  return bars;
 }
 
 function escapeXml(str) {
@@ -146,7 +170,7 @@ function spansMultipleYears(bars) {
 function buildAxes(o, plot, range, bars) {
   if (!o.showAxes && !o.showGrid) return '';
 
-  const yTicks = Math.max(2, Math.floor(o.yTicks || 5));
+  const yTicks = Math.max(2, Math.floor(o.yTicks));
   const parts = [];
 
   // Y axis (price) ticks
@@ -170,7 +194,7 @@ function buildAxes(o, plot, range, bars) {
   // X axis (time) ticks — pick N evenly spaced bars (configurable via xTicks)
   if (o.showAxes) {
     const multiYear = spansMultipleYears(bars);
-    const requested = Math.max(2, Math.floor(o.xTicks || 5));
+    const requested = Math.max(2, Math.floor(o.xTicks));
     const xTicks = Math.min(requested, bars.length);
     for (let i = 0; i < xTicks; i++) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
@@ -223,7 +247,7 @@ function resolveEvents(events, o, plot, tMin, tMax, xForTime) {
       return {
         x,
         label: String(ev.label || ''),
-        color: ev.color || fallbackColor
+        color: ev.color ? escapeXml(ev.color) : fallbackColor
       };
     })
     .filter(Boolean);
@@ -250,24 +274,11 @@ function buildEvents(resolvedEvents, plot, o) {
     .join('');
 }
 
-/**
- * Patch options to add extra top padding when events are present.
- */
-function withEventPadding(o, hasEvents) {
-  if (!hasEvents) return o;
-  return { ...o, padding: { ...o.padding, top: o.padding.top + EVENT_TOP_PAD } };
-}
-
 function svgWrap(o, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${o.width} ${o.height}" width="${o.width}" height="${o.height}">` +
     `<rect width="${o.width}" height="${o.height}" fill="${o.colors.bg}"/>` +
     body +
     `</svg>`;
-}
-
-function xAt(plot, i, n) {
-  if (n <= 1) return plot.x + plot.w / 2;
-  return plot.x + (i / (n - 1)) * plot.w;
 }
 
 function yAt(plot, value, range) {
@@ -282,7 +293,8 @@ function yAt(plot, value, range) {
  * @returns {string} SVG document
  */
 export function renderLineChart(stock, options) {
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  assertBars(stock, 'renderLineChart');
+  const o = resolve(options);
   const plot = plotArea(o);
   const worthMode = o.valueMode === 'worth';
   if (worthMode) _assertWorth(stock);
@@ -292,15 +304,21 @@ export function renderLineChart(stock, options) {
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const span = Math.max(1, tMax - tMin);
+  // Points are placed by timestamp so event markers and irregularly spaced
+  // bars line up correctly.
+  const xForTime = (t) => plot.x + ((t - tMin) / span) * plot.w;
+  const xFor = (b, i) => (n <= 1 ? plot.x + plot.w / 2 : xForTime(b.time));
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const points = stock.bars
-    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
+    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
     .join(' ');
 
+  const axisBars = n <= 1 ? stock.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+
   const body =
-    buildAxes(o, plot, range, stock.bars) +
+    buildAxes(o, plot, range, axisBars) +
     buildEvents(evs, plot, o) +
     `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
@@ -315,7 +333,8 @@ export function renderLineChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderAreaChart(stock, options) {
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  assertBars(stock, 'renderAreaChart');
+  const o = resolve(options);
   const plot = plotArea(o);
   const worthMode = o.valueMode === 'worth';
   if (worthMode) _assertWorth(stock);
@@ -325,20 +344,24 @@ export function renderAreaChart(stock, options) {
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const span = Math.max(1, tMax - tMin);
+  const xForTime = (t) => plot.x + ((t - tMin) / span) * plot.w;
+  const xFor = (b, i) => (n <= 1 ? plot.x + plot.w / 2 : xForTime(b.time));
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const linePoints = stock.bars
-    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
+    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
     .join(' ');
 
-  const firstX = xAt(plot, 0, n).toFixed(2);
-  const lastX = xAt(plot, n - 1, n).toFixed(2);
+  const firstX = xFor(stock.bars[0], 0).toFixed(2);
+  const lastX = xFor(stock.bars[n - 1], n - 1).toFixed(2);
   const baseY = (plot.y + plot.h).toFixed(2);
   const areaPoints = `${firstX},${baseY} ${linePoints} ${lastX},${baseY}`;
 
+  const axisBars = n <= 1 ? stock.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+
   const body =
-    buildAxes(o, plot, range, stock.bars) +
+    buildAxes(o, plot, range, axisBars) +
     buildEvents(evs, plot, o) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
     `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
@@ -354,11 +377,16 @@ export function renderAreaChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderBarChart(stock, options) {
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  assertBars(stock, 'renderBarChart');
+  const o = resolve(options);
   const plot = plotArea(o);
-  const worthMode = o.valueMode === 'worth';
-  if (worthMode) _assertWorth(stock);
-  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, true);
+  if (o.valueMode === 'worth') {
+    throw new Error(
+      `renderBarChart: valueMode 'worth' is not supported — worth is a single ` +
+      `value per bar so there is nothing to draw as OHLC. Use 'line' or 'area'.`
+    );
+  }
+  const range = priceRange(stock.bars, true);
   const n = stock.bars.length;
 
   const slot = plot.w / Math.max(1, n);
@@ -371,10 +399,10 @@ export function renderBarChart(stock, options) {
   const bars = stock.bars
     .map((b, i) => {
       const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
-      const yHigh = yAt(plot, worthMode ? b.worth : b.high, range);
-      const yLow  = yAt(plot, worthMode ? b.worth : b.low,  range);
-      const yOpen  = yAt(plot, worthMode ? b.worth : b.open,  range);
-      const yClose = yAt(plot, worthMode ? b.worth : b.close, range);
+      const yHigh = yAt(plot, b.high, range);
+      const yLow  = yAt(plot, b.low,  range);
+      const yOpen  = yAt(plot, b.open,  range);
+      const yClose = yAt(plot, b.close, range);
       const color = b.close >= b.open ? o.colors.up : o.colors.down;
       return (
         `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
@@ -384,15 +412,14 @@ export function renderBarChart(stock, options) {
     })
     .join('');
 
-  const n2 = stock.bars.length;
-  const tMin2 = stock.bars[0].time;
-  const tMax2 = stock.bars[n2 - 1].time;
-  const xForTime2 = (t) => plot.x + ((t - tMin2) / Math.max(1, tMax2 - tMin2)) * plot.w;
-  const evs2 = resolveEvents(o.events, o, plot, tMin2, tMax2, xForTime2);
+  const tMin = stock.bars[0].time;
+  const tMax = stock.bars[n - 1].time;
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const body =
     buildAxes(o, plot, range, stock.bars) +
-    buildEvents(evs2, plot, o) +
+    buildEvents(evs, plot, o) +
     bars +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -406,11 +433,16 @@ export function renderBarChart(stock, options) {
  * @returns {string} SVG document
  */
 export function renderCandlestickChart(stock, options) {
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  assertBars(stock, 'renderCandlestickChart');
+  const o = resolve(options);
   const plot = plotArea(o);
-  const worthMode = o.valueMode === 'worth';
-  if (worthMode) _assertWorth(stock);
-  const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, true);
+  if (o.valueMode === 'worth') {
+    throw new Error(
+      `renderCandlestickChart: valueMode 'worth' is not supported — worth is a single ` +
+      `value per bar so there is nothing to draw as a candle. Use 'line' or 'area'.`
+    );
+  }
+  const range = priceRange(stock.bars, true);
   const n = stock.bars.length;
 
   const slot = plot.w / Math.max(1, n);
@@ -424,10 +456,10 @@ export function renderCandlestickChart(stock, options) {
   const candles = stock.bars
     .map((b, i) => {
       const x = n <= 1 ? innerX + innerW / 2 : innerX + (i / (n - 1)) * innerW;
-      const yHigh = yAt(plot, worthMode ? b.worth : b.high,  range);
-      const yLow  = yAt(plot, worthMode ? b.worth : b.low,   range);
-      const yOpen  = yAt(plot, worthMode ? b.worth : b.open,  range);
-      const yClose = yAt(plot, worthMode ? b.worth : b.close, range);
+      const yHigh = yAt(plot, b.high,  range);
+      const yLow  = yAt(plot, b.low,   range);
+      const yOpen  = yAt(plot, b.open,  range);
+      const yClose = yAt(plot, b.close, range);
       const up = b.close >= b.open;
       const color = up ? o.colors.up : o.colors.down;
       const top = Math.min(yOpen, yClose);
@@ -439,15 +471,14 @@ export function renderCandlestickChart(stock, options) {
     })
     .join('');
 
-  const nc = stock.bars.length;
-  const tMinC = stock.bars[0].time;
-  const tMaxC = stock.bars[nc - 1].time;
-  const xForTimeC = (t) => plot.x + ((t - tMinC) / Math.max(1, tMaxC - tMinC)) * plot.w;
-  const evsC = resolveEvents(o.events, o, plot, tMinC, tMaxC, xForTimeC);
+  const tMin = stock.bars[0].time;
+  const tMax = stock.bars[n - 1].time;
+  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const body =
     buildAxes(o, plot, range, stock.bars) +
-    buildEvents(evsC, plot, o) +
+    buildEvents(evs, plot, o) +
     candles +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -478,9 +509,12 @@ export function renderMultiLineChart(stocks, options = {}) {
   if (!Array.isArray(stocks) || stocks.length === 0) {
     throw new Error('renderMultiLineChart: stocks must be a non-empty array');
   }
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  const o = resolve(options);
   const plot = plotArea(o);
   const mode = options.mode || 'normalized';
+  if (mode !== 'price' && mode !== 'normalized') {
+    throw new Error(`renderMultiLineChart: unknown mode "${mode}". Use "price" or "normalized".`);
+  }
   const showLegend = options.legend !== false;
   const showArea = options.area === true;
   const palette = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0ea5e9', '#ec4899', '#14b8a6'];
@@ -497,7 +531,7 @@ export function renderMultiLineChart(stocks, options = {}) {
     return {
       stock: s,
       points,
-      color: s.color || palette[i % palette.length]
+      color: escapeXml(s.color || palette[i % palette.length])
     };
   });
 
@@ -590,12 +624,7 @@ export function renderMultiLineChart(stocks, options = {}) {
     .join('');
 
   // Build a synthetic "bars" array spanning the union, for axis labels
-  const axisBars = [];
-  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 5));
-  for (let i = 0; i < xTicksCount; i++) {
-    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
-    axisBars.push({ time: t });
-  }
+  const axisBars = makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
 
   // Legend at top-right of the plot area — drawn last on a solid background
   // so price lines never pass through the labels.
@@ -715,7 +744,7 @@ export function renderNetWorthChart(netWorth, options) {
     throw new Error('renderNetWorthChart: expected a NetWorth object with a non-empty bars array');
   }
 
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  const o = resolve(options);
   const plot = plotArea(o);
 
   const values = netWorth.bars.map((b) => b.value);
@@ -732,18 +761,19 @@ export function renderNetWorthChart(netWorth, options) {
   const n = netWorth.bars.length;
   const tMin = netWorth.bars[0].time;
   const tMax = netWorth.bars[n - 1].time;
-  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  const span = Math.max(1, tMax - tMin);
+  const xForTime = (t) => plot.x + ((t - tMin) / span) * plot.w;
+  const xFor = (b, i) => (n <= 1 ? plot.x + plot.w / 2 : xForTime(b.time));
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
-  // Synthetic axis bars using the actual timestamps
-  const axisBars = netWorth.bars;
+  const axisBars = n <= 1 ? netWorth.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
 
   const linePoints = netWorth.bars
-    .map((b, i) => `${xAt(plot, i, n).toFixed(2)},${yAt(plot, b.value, range).toFixed(2)}`)
+    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, b.value, range).toFixed(2)}`)
     .join(' ');
 
-  const firstX = xAt(plot, 0, n).toFixed(2);
-  const lastX = xAt(plot, n - 1, n).toFixed(2);
+  const firstX = xFor(netWorth.bars[0], 0).toFixed(2);
+  const lastX = xFor(netWorth.bars[n - 1], n - 1).toFixed(2);
   const baseY = (plot.y + plot.h).toFixed(2);
   const areaPoints = `${firstX},${baseY} ${linePoints} ${lastX},${baseY}`;
 
@@ -807,8 +837,11 @@ export function renderMixedChart(items, options = {}) {
     throw new Error('renderMixedChart: maximum 8 items supported');
   }
 
-  const o = withEventPadding(resolve(options), options?.events?.length);
-  const mode = options.mode || 'normalized'; // 'absolute', 'normalized', 'percent'
+  const o = resolve(options);
+  const mode = options.mode || 'normalized';
+  if (mode !== 'absolute' && mode !== 'normalized' && mode !== 'percent') {
+    throw new Error(`renderMixedChart: unknown mode "${mode}". Use "absolute", "normalized" or "percent".`);
+  }
   const showLegend = options.showLegend !== false;
   const plot = plotArea(o);
 
@@ -835,12 +868,12 @@ export function renderMixedChart(items, options = {}) {
     }
 
     // Extract values and times
-    const points = data.bars.map((b, i) => {
+    const points = data.bars.map((b) => {
       const t = b.time;
       const v = isNetWorth ? b.value : (valueField === 'worth' ? b.worth : b.close);
       if (t < tMin) tMin = t;
       if (t > tMax) tMax = t;
-      return { t, v, idx: i };
+      return { t, v };
     }).filter(p => p.v != null && Number.isFinite(p.v));
 
     if (points.length === 0) {
@@ -852,7 +885,7 @@ export function renderMixedChart(items, options = {}) {
 
     // Assign color
     const palette = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#db2777', '#4b5563'];
-    const color = item.color || palette[idx % palette.length];
+    const color = escapeXml(item.color || palette[idx % palette.length]);
 
     return { points, label, color, valueField, data };
   });
@@ -898,12 +931,7 @@ export function renderMixedChart(items, options = {}) {
   }).join('');
 
   // Build axis bars for date labels
-  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 6));
-  const axisBars = [];
-  for (let i = 0; i < xTicksCount; i++) {
-    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
-    axisBars.push({ time: t });
-  }
+  const axisBars = makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
 
   // Resolve and build events
   const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
@@ -942,11 +970,8 @@ export function renderMixedChart(items, options = {}) {
       items;
   }
 
-  // Y-axis label based on mode
-  const yLabel = mode === 'absolute' ? 'Value' : (mode === 'normalized' ? 'Rebased (start=100)' : 'Change %');
-
   const body =
-    buildAxes({ ...o, yLabel }, plot, range, axisBars) +
+    buildAxes(o, plot, range, axisBars) +
     buildEvents(evs, plot, o) +
     lines +
     legend +
@@ -979,114 +1004,144 @@ export function renderMixedChart(items, options = {}) {
  * @returns {string} SVG document
  */
 export function renderChartWithVolume(data, type = 'line', options = {}) {
-  const hasVolume = data.bars && data.bars.length > 0 && data.bars[0].volume != null;
-  if (!hasVolume) {
-    throw new Error('renderChartWithVolume: data must have volume field on bars');
+  if (!data || !Array.isArray(data.bars) || data.bars.length === 0 || data.bars[0].volume == null) {
+    throw new Error('renderChartWithVolume: data must have a non-empty bars array with a volume field');
+  }
+  if (type !== 'line' && type !== 'area' && type !== 'bar' && type !== 'candlestick') {
+    throw new Error(`renderChartWithVolume: unknown chart type "${type}". Use "line", "area", "bar" or "candlestick".`);
   }
 
-  const o = withEventPadding(resolve(options), options?.events?.length);
+  const o = resolve(options);
   const volumeHeightPct = Math.max(10, Math.min(40, options.volumeHeight || 25));
 
   // Split plot area: main chart on top, volume below
   const gap = 10; // gap between panels
-  const totalH = plotArea(o).h;
-  const mainH = Math.round(totalH * (1 - volumeHeightPct / 100) - gap);
-  const volH = totalH - mainH - gap;
+  const full = plotArea(o);
+  const mainH = Math.round(full.h * (1 - volumeHeightPct / 100) - gap);
+  const volH = full.h - mainH - gap;
 
-  const mainPlot = { x: plotArea(o).x, y: plotArea(o).y, w: plotArea(o).w, h: mainH };
-  const volPlot = { x: plotArea(o).x, y: plotArea(o).y + mainH + gap, w: plotArea(o).w, h: volH };
+  const mainPlot = { x: full.x, y: full.y, w: full.w, h: mainH };
+  const volPlot = { x: full.x, y: full.y + mainH + gap, w: full.w, h: volH };
 
-  // Build main chart based on type
-  let mainBody = '';
   const n = data.bars.length;
   const tMin = data.bars[0].time;
   const tMax = data.bars[n - 1].time;
+  const span = Math.max(1, tMax - tMin);
+  const xForTime = (t) => mainPlot.x + ((t - tMin) / span) * mainPlot.w;
+  const xFor = (b) => (n <= 1 ? mainPlot.x + mainPlot.w / 2 : xForTime(b.time));
 
-  // Value range for main chart
+  const getValue = (b) => b.close ?? b.value;
+  const hasOHLC = data.bars[0].open != null;
+  const drawOHLC = hasOHLC && (type === 'bar' || type === 'candlestick');
+
+  // Value range for the main chart — OHLC charts span high..low, others the value
   let vMin = Infinity, vMax = -Infinity;
   for (const b of data.bars) {
-    const v = b.close ?? b.value;
-    if (v < vMin) vMin = v;
-    if (v > vMax) vMax = v;
+    const lo = drawOHLC ? b.low : getValue(b);
+    const hi = drawOHLC ? b.high : getValue(b);
+    if (lo < vMin) vMin = lo;
+    if (hi > vMax) vMax = hi;
   }
   if (vMin === vMax) { vMin -= 1; vMax += 1; }
   const vPad = (vMax - vMin) * 0.05;
   const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
 
-  // Volume range
-  let volMin = 0, volMax = 0;
+  // Volume range (bars start at 0)
+  let volMax = 0;
   for (const b of data.bars) {
     if (b.volume > volMax) volMax = b.volume;
   }
   volMax = volMax * 1.1; // small padding
-  const volRange = { min: 0, max: volMax };
 
   // Resolve events
-  const xForTime = (t) => mainPlot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * mainPlot.w;
   const evs = resolveEvents(o.events, o, mainPlot, tMin, tMax, xForTime);
 
   // Build main chart content
-  const axisBars = data.bars;
-  if (type === 'line' || type === 'area') {
-    const points = data.bars.map((b, i) => {
-      const x = xAt(mainPlot, i, n);
-      const y = yAt(mainPlot, b.close ?? b.value, range);
+  let mainBody = '';
+  if (drawOHLC && type === 'bar') {
+    const slot = mainPlot.w / Math.max(1, n);
+    const tick = Math.max(1, Math.min(slot * 0.35, 6));
+    mainBody = data.bars.map((b) => {
+      const x = xFor(b);
+      const yHigh = yAt(mainPlot, b.high, range);
+      const yLow = yAt(mainPlot, b.low, range);
+      const yOpen = yAt(mainPlot, b.open, range);
+      const yClose = yAt(mainPlot, b.close, range);
+      const color = b.close >= b.open ? o.colors.up : o.colors.down;
+      return (
+        `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
+        `<line x1="${(x - tick).toFixed(2)}" y1="${yOpen.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yOpen.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
+        `<line x1="${x.toFixed(2)}" y1="${yClose.toFixed(2)}" x2="${(x + tick).toFixed(2)}" y2="${yClose.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>`
+      );
+    }).join('');
+  } else if (drawOHLC && type === 'candlestick') {
+    const slot = mainPlot.w / Math.max(1, n);
+    const candleW = Math.max(1, slot * 0.6);
+    mainBody = data.bars.map((b) => {
+      const x = xFor(b);
+      const yHigh = yAt(mainPlot, b.high, range);
+      const yLow = yAt(mainPlot, b.low, range);
+      const yOpen = yAt(mainPlot, b.open, range);
+      const yClose = yAt(mainPlot, b.close, range);
+      const color = b.close >= b.open ? o.colors.up : o.colors.down;
+      const top = Math.min(yOpen, yClose);
+      const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+      return (
+        `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1"/>` +
+        `<rect x="${(x - candleW / 2).toFixed(2)}" y="${top.toFixed(2)}" width="${candleW.toFixed(2)}" height="${bodyH.toFixed(2)}" fill="${color}" stroke="${color}"/>`
+      );
+    }).join('');
+  } else {
+    // 'line', 'area', or bar/candlestick on non-OHLC data (e.g. NetWorth)
+    const points = data.bars.map((b) => {
+      const x = xFor(b);
+      const y = yAt(mainPlot, getValue(b), range);
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     }).join(' ');
     mainBody = `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     if (type === 'area') {
-      const firstX = xAt(mainPlot, 0, n).toFixed(2);
-      const lastX = xAt(mainPlot, n - 1, n).toFixed(2);
+      const firstX = xFor(data.bars[0]).toFixed(2);
+      const lastX = xFor(data.bars[n - 1]).toFixed(2);
       const baseY = (mainPlot.y + mainPlot.h).toFixed(2);
       const areaPoints = `${firstX},${baseY} ${points} ${lastX},${baseY}`;
       mainBody = `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` + mainBody;
     }
-  } else if (type === 'bar' || type === 'candlestick') {
-    // Simplified - just line for now in volume charts
-    const points = data.bars.map((b, i) => {
-      const x = xAt(mainPlot, i, n);
-      const y = yAt(mainPlot, b.close, range);
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    }).join(' ');
-    mainBody = `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
 
   // Build volume bars
   const barWidth = Math.max(1, (volPlot.w / n) * 0.8);
   const volumeBars = data.bars.map((b, i) => {
-    const x = xAt(volPlot, i, n) - barWidth / 2;
-    const h = volPlot.h * (b.volume / volRange.max);
+    const x = xFor(b) - barWidth / 2;
+    const h = volPlot.h * (b.volume / volMax);
     const y = volPlot.y + volPlot.h - h;
     // Color: up if value increased, down if decreased
     const prev = i > 0 ? data.bars[i - 1] : b;
-    const currVal = b.close ?? b.value;
-    const prevVal = prev.close ?? prev.value;
-    const isUp = currVal >= prevVal;
+    const isUp = getValue(b) >= getValue(prev);
     const color = isUp ? o.colors.up : o.colors.down;
     return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${color}" opacity="0.6"/>`;
   }).join('');
 
-  // X axis ticks (shared)
-  const xTicksCount = Math.max(2, Math.floor(o.xTicks || 6));
-  const xLabels = [];
-  for (let i = 0; i < xTicksCount; i++) {
-    const t = tMin + (i / (xTicksCount - 1)) * (tMax - tMin);
-    const x = xForTime(t);
-    const anchor = i === 0 ? 'start' : i === xTicksCount - 1 ? 'end' : 'middle';
-    xLabels.push(`<text x="${x.toFixed(2)}" y="${volPlot.y + volPlot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(t, false)}</text>`);
-  }
+  // X axis ticks (shared, time-mapped)
+  const axisBars = n <= 1 ? data.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+  const multiYear = spansMultipleYears(data.bars);
+  const xLabels = axisBars.map((ab, i) => {
+    const x = xForTime(ab.time);
+    const anchor = i === 0 ? 'start' : i === axisBars.length - 1 ? 'end' : 'middle';
+    return `<text x="${x.toFixed(2)}" y="${volPlot.y + volPlot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(ab.time, multiYear)}</text>`;
+  }).join('');
 
   const body =
     // Main chart axes
-    buildAxes({ ...o, yTicks: 5 }, mainPlot, range, axisBars) +
-    buildEvents(evs, plotArea(o), o) +
+    buildAxes(o, mainPlot, range, axisBars) +
+    // Event markers span both panels
+    buildEvents(evs, full, o) +
     mainBody +
     // Volume panel background line
     `<line x1="${volPlot.x}" y1="${volPlot.y}" x2="${volPlot.x + volPlot.w}" y2="${volPlot.y}" stroke="${o.colors.grid}" stroke-width="1"/>` +
     // Volume bars
     volumeBars +
     // X axis labels (shared at bottom)
-    xLabels.join('') +
+    xLabels +
     buildTitle(o);
 
   return svgWrap(o, body);

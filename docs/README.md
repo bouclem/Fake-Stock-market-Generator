@@ -34,7 +34,7 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - **net worth time series** for a person or entity (`generateNetWorth`)
 - **company total worth** via `sharesOutstanding` — each bar gets a `worth` field (`close × shares`)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
-- pick any time interval — `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1y`)
+- pick any time interval — `"1min"`, `"5min"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`/`"1m"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1m` / `1y`; since v2 `m` means **month** — use `min` for minutes)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
 - save to JSON and reload it later — output is plain data (net worth + worth fields included)
@@ -164,7 +164,7 @@ const restored = fromJSON(readFileSync('stock.json', 'utf8'));
 | `drift`       | `number`                   | random           | annualised, e.g. `0.05` = +5%/yr |
 | `volatility`  | `number`                   | random           | annualised, e.g. `0.3` = 30%/yr |
 | `bars`        | `number`                   | `100`            | positive integer |
-| `interval`    | `number \| string`         | `"1d"`           | ms or `"1m"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1y"` (calendar-aware for `1mo` / `1y`) |
+| `interval`    | `number \| string`         | `"1d"`           | ms or `"1min"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1m"`/`"1y"` (calendar-aware for `1mo`/`1m`/`1y`; since v2 `m` = month, `min` = minute) |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
 | `seed`        | `number \| string`         | random           | reproducible output |
 | `prices`      | `number[]`                 | none             | use your own close prices; `bars` becomes the array length |
