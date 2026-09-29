@@ -62,9 +62,21 @@ Drop the seed for fresh random output each run.
 
 ## Bar interval
 
-The time gap between consecutive bars. Can be `"1m"`, `"5m"`, `"1h"`, `"1d"`, `"1w"` (fixed) or `"1mo"`, `"1y"` (calendar-aware), or any positive number of milliseconds.
+The time gap between consecutive bars. Can be `"1min"`, `"5min"`, `"1h"`, `"1d"`, `"1w"` (fixed) or `"1mo"`/`"1m"`, `"1y"` (calendar-aware), or any positive number of milliseconds. Since v2.0.0, `"m"` means **month** — use `"min"` for minutes.
 
 See [Intervals](guides/intervals.md) for full details.
+
+## Session
+
+Which part of the trading day an intraday stock bar belongs to. The package uses a UTC clock: `pre` = pre-market (04:00–09:30), `regular` = regular session (09:30–16:00), `post` = after-hours (16:00–20:00). Bars carry `session` only when generated with `extendedHours: true`.
+
+## Pre-market / after-hours (extended hours)
+
+Trading outside the regular 09:30–16:00 window. Generated stock bars include them only when you pass `extendedHours: true`; on charts they render as grey semi-transparent dots (Yahoo Finance–style) instead of the solid regular-session line.
+
+## Weekends
+
+Saturday and Sunday. Generated stock bars skip them by default (charts compress the gap); pass `weekends: true` to include them. Crypto is unaffected — it trades 24/7.
 
 ## Market
 

@@ -9,19 +9,23 @@ The `interval` option controls the time gap between bars. Two flavours:
 
 | String       | Meaning            | Calendar-aware? |
 |--------------|--------------------|-----------------|
-| `"1m"`       | 1 minute           | no              |
-| `"5m"`       | 5 minutes          | no              |
+| `"1min"`     | 1 minute           | no              |
+| `"5min"`     | 5 minutes          | no              |
 | `"1h"`       | 1 hour             | no              |
 | `"1d"`       | 1 day              | no              |
 | `"1w"`       | 1 week             | no              |
 | `"1mo"`      | 1 calendar month   | **yes**         |
+| `"1m"`       | 1 calendar month   | **yes**         |
 | `"3mo"`      | 3 calendar months  | **yes**         |
 | `"1y"`       | 1 calendar year    | **yes**         |
 
-The number can be any positive integer: `"15m"`, `"2h"`, `"6mo"`, `"5y"`, etc. Zero (`"0d"`) is rejected.
+!!! warning "`m` means month, not minute"
+    Since v2.0.0, `"m"` is a **calendar month** (same as `"mo"`). Use `"min"` for minutes — `"1m"` gives monthly bars, `"1min"` gives minute bars.
+
+The number can be any positive integer: `"15min"`, `"2h"`, `"6mo"`, `"5y"`, etc. Zero (`"0d"`) is rejected.
 
 ```js
-generateStock({ bars: 100, interval: '15m', startDate: '2024-01-01T09:30:00Z' });
+generateStock({ bars: 100, interval: '15min', startDate: '2024-01-01T09:30:00Z' });
 generateStock({ bars: 30,  interval: '1mo', startDate: '1999-08-01' });
 generateStock({ bars: 25,  interval: '1y',  startDate: '2000-01-01' });
 ```
@@ -51,7 +55,7 @@ generateStock({ bars: 5, interval: '1y', startDate: '1999-08-01' });
 // Bar timestamps: 1999-08-01, 2000-08-01, 2001-08-01, 2002-08-01, 2003-08-01
 ```
 
-Leap years are handled. `January 31 + 1mo` rolls over the way JavaScript's `Date.setUTCMonth` does (lands in early March).
+Leap years are handled. `January 31 + 1mo` clamps to the last day of the shorter month (`Feb 29` / `Feb 28`) instead of overflowing into early March — and `+1mo` from there continues at the 29th/28th, which is the clamped behaviour.
 
 !!! info "Why this matters"
     Without calendar awareness, "1 month" would mean 30 days, so a chart anchored to "1st of the month" would slowly drift over time. Calendar-aware stepping keeps the day-of-month aligned for the life of the chart.

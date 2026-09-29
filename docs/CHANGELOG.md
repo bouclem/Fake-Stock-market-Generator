@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## 2.0.1 — 2026-09-28
+
+### Added
+- **Market-hours scheduling for stocks** (UTC clock): generated stock bars now skip weekends and land inside the regular session (09:30–16:00) by default. Intraday bars snap forward to the next tradable slot; a `startDate` outside trading hours is moved to the next session.
+- `weekends: true` option on `generateStock`/`generateMarket` — one line to include Saturday/Sunday bars again.
+- `extendedHours: true` option — intraday stock bars additionally cover pre-market (04:00–09:30) and after-hours (16:00–20:00), each tagged `bar.session: 'pre' | 'regular' | 'post'`.
+- Extended-hours bars render Yahoo Finance–style in every chart: grey semi-transparent dots with a dotted connector on line/area/multi-line/mixed charts, grey candles/bars on OHLC charts, and grey volume bars. Override via `colors.ext`.
+- `parseIntervalSpec` is now exported from the package root (it was previously internal-only).
+- `colors.ext` chart color override; `Bar.session` added to `index.d.ts`.
+
+### Changed
+- Line/area charts now space bars by **index** (not wall-clock time), so skipped weekends and overnight gaps compress away instead of leaving empty space — matching Yahoo Finance. Event markers resolve to the nearest bar.
+- Intraday series get clock-time axis labels (`HH:MM`) automatically when the typical bar gap is under a day.
+- `kind: 'crypto'` is unaffected by the schedule — 24/7 bars, no sessions, both options ignored.
+
+### Docs
+- `docs/TODO.md` — "Skip weekends" marked shipped (2.0.1).
+- Read the Docs pages updated for the new options and fixed stale interval notes (`"1m"` = month since 2.0.0, not minute).
+
 ## 2.0.0 — 2026-09-21
 
 ### Breaking
@@ -35,6 +54,22 @@ All notable changes to this project are documented here.
 ### Removed
 - Dead code: unused `xAt`/`withEventPadding` helpers, duplicated time-domain blocks in OHLC renderers, unreachable `xTicks`/`yTicks` fallbacks, the never-rendered `yLabel`, and unused accumulators.
 
+## 1.3.10 — 2026-06-17
+
+### Added
+- `cleanJson(jsonString)` — pre-process JSON to remove underscores from numeric literals (e.g., `10_500` → `10500`)
+- `parseJson(jsonString)` — parse JSON that may contain underscore notation in numbers
+
+## 1.3.9 — 2026-06-17
+
+### Fixed
+- Restored the root `README.md` so the npm registry page shows full documentation again.
+
+## 1.3.8 — 2026-06-17
+
+### Fixed
+- `package.json` `files` array now points to `docs/README.md` after the documentation move (the published tarball was missing its readme).
+
 ## 1.3.7 — 2026-06-17
 
 ### Added
@@ -46,8 +81,6 @@ All notable changes to this project are documented here.
   - Configurable panel height via `volumeHeight` option (default 25%)
   - Works with stocks, net worth, and any data with `volume` on bars
   - Supports all chart types: 'line', 'area', 'bar', 'candlestick'
-- `cleanJson(jsonString)` — pre-process JSON to remove underscores from numeric literals (e.g., `10_500` → `10500`)
-- `parseJson(jsonString)` — parse JSON that may contain underscore notation in numbers
 
 ## 1.3.6 — 2026-06-17
 

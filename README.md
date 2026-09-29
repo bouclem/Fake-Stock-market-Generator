@@ -34,6 +34,7 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - **net worth time series** for a person or entity (`generateNetWorth`)
 - **company total worth** via `sharesOutstanding` — each bar gets a `worth` field (`close × shares`)
 - `kind: 'stock'` (default) or `'crypto'` for wildly different defaults
+- **realistic market schedule** — stock bars skip weekends and land inside the regular session (09:30–16:00 UTC) by default; opt in with `weekends: true` / `extendedHours: true`; `kind: 'crypto'` is unaffected (24/7)
 - pick any time interval — `"1min"`, `"5min"`, `"1h"`, `"1d"`, `"1w"`, `"1mo"`/`"1m"`, `"1y"` or raw milliseconds (calendar-aware for `1mo` / `1m` / `1y`; since v2 `m` means **month** — use `min` for minutes)
 - override anything: symbol, name, sector, start price, drift, volatility, start date
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
@@ -56,6 +57,8 @@ All renderers return a complete SVG string. Save it to a file, drop it into HTML
 Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart. Load events from a separate `.json` file with `loadEvents()`.
 
 All single-stock renderers support `valueMode: 'worth'` to plot total company valuation instead of per-share price.
+
+When a stock was generated with `extendedHours: true`, pre-market and after-hours bars render **Yahoo Finance–style**: the regular-session line stays solid and the extended-hours segments are drawn as grey semi-transparent dots (grey candles/bars on OHLC and volume charts).
 
 Default chart size is **1200 × 600** for better readability and more room for date labels.
 
@@ -169,6 +172,26 @@ const restored = fromJSON(readFileSync('stock.json', 'utf8'));
 | `seed`        | `number \| string`         | random           | reproducible output |
 | `prices`      | `number[]`                 | none             | use your own close prices; `bars` becomes the array length |
 | `ohlc`        | `Bar[]`                    | none             | use your own full OHLC bars verbatim |
+| `weekends`    | `boolean`                  | `false`          | stocks only: include Saturday/Sunday bars |
+| `extendedHours` | `boolean`                | `false`          | stocks only: also generate pre-market (04:00–09:30) and after-hours (16:00–20:00) bars, tagged via `bar.session` |
+
+### Market hours & weekends
+
+Generated **stock** bars follow a UTC market clock: the regular session is **09:30–16:00**, pre-market is **04:00–09:30**, and after-hours is **16:00–20:00**. Weekends are skipped by default and bars are compressed onto the chart x-axis, so Saturday/Sunday never appear as empty space (just like Yahoo Finance). A `startDate` that falls outside tradable times snaps forward to the next bar slot.
+
+```js
+// Default: weekdays only, regular session only
+const stock = generateStock({ bars: 60, interval: '1d', seed: 'demo' });
+
+// One line to include Saturday/Sunday bars
+const withWeekends = generateStock({ bars: 60, interval: '1d', weekends: true });
+
+// One line to add pre-market + after-hours intraday bars
+const extended = generateStock({ bars: 200, interval: '1h', extendedHours: true });
+// every bar is tagged: bar.session === 'pre' | 'regular' | 'post'
+```
+
+`extendedHours` only affects intraday intervals (< 1 day). Both options are **ignored for `kind: 'crypto'`** — crypto bars run 24/7 with no sessions and no `session` field. Bars built from your own `prices`/`ohlc` still get schedule-aligned timestamps for stocks.
 
 ### `generateMarket({ count, stocks, ...stockOptions }) -> Stock[]`
 

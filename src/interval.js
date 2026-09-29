@@ -118,3 +118,84 @@ export function stepTime(startMs, spec, i) {
   }
   return d.getTime();
 }
+
+// ---------------------------------------------------------------------------
+// Trading sessions (used when `kind: 'stock'` follows a market schedule).
+//
+// Simulated exchange on a fixed UTC clock — no timezone/DST handling:
+//   pre-market   04:00 – 09:30
+//   regular      09:30 – 16:00
+//   after-hours  16:00 – 20:00
+//
+// Crypto and net worth never use this — they run 24/7.
+
+const DAY_LEN_MS = 24 * 60 * 60 * 1000;
+const PRE_OPEN_MIN = 4 * 60;        // 04:00
+const REG_OPEN_MIN = 9 * 60 + 30;   // 09:30
+const REG_CLOSE_MIN = 16 * 60;      // 16:00
+const POST_CLOSE_MIN = 20 * 60;     // 20:00
+
+function msOfDay(ms) {
+  return ((ms % DAY_LEN_MS) + DAY_LEN_MS) % DAY_LEN_MS;
+}
+
+/**
+ * True when `ms` falls on a Saturday or Sunday (UTC).
+ * @param {number} ms
+ * @returns {boolean}
+ */
+export function isWeekendUTC(ms) {
+  const day = new Date(ms).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * Which market session a timestamp belongs to.
+ * @param {number} ms
+ * @returns {'pre'|'regular'|'post'|'closed'} 'closed' = overnight (20:00–04:00)
+ */
+export function sessionAt(ms) {
+  const min = msOfDay(ms) / MINUTE_MS;
+  if (min < PRE_OPEN_MIN || min >= POST_CLOSE_MIN) return 'closed';
+  if (min < REG_OPEN_MIN) return 'pre';
+  if (min < REG_CLOSE_MIN) return 'regular';
+  return 'post';
+}
+
+/**
+ * Snap a timestamp forward to the next tradable moment.
+ * - Weekends are skipped unless `weekends` is true.
+ * - With `intraday`, times outside the session window jump to the next
+ *   session open (09:30, or 04:00 when `extendedHours` is true).
+ * - `intraday: false` only applies the weekend rule (daily+ bars).
+ *
+ * @param {number} ms - candidate timestamp (kept verbatim when already tradable)
+ * @param {{weekends?: boolean, extendedHours?: boolean, intraday?: boolean}} [opts]
+ * @returns {number} the first tradable timestamp >= the snapped candidate
+ */
+export function snapToTradingTime(ms, { weekends = false, extendedHours = false, intraday = false } = {}) {
+  const openMin = extendedHours ? PRE_OPEN_MIN : REG_OPEN_MIN;
+  const closeMin = extendedHours ? POST_CLOSE_MIN : REG_CLOSE_MIN;
+  let t = ms;
+  // Bounded loop: at most a handful of jumps (weekend + session open + next day).
+  for (let i = 0; i < 8; i++) {
+    if (!weekends && isWeekendUTC(t)) {
+      const dayStart = t - msOfDay(t);
+      t = intraday ? dayStart + DAY_LEN_MS + openMin * MINUTE_MS : t + DAY_LEN_MS;
+      continue;
+    }
+    if (!intraday) return t;
+    const tod = msOfDay(t);
+    const min = tod / MINUTE_MS;
+    if (min < openMin) {
+      t = t - tod + openMin * MINUTE_MS;
+      continue;
+    }
+    if (min >= closeMin) {
+      t = t - tod + DAY_LEN_MS + openMin * MINUTE_MS;
+      continue;
+    }
+    return t;
+  }
+  return t;
+}

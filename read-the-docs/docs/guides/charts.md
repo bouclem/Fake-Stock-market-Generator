@@ -82,7 +82,31 @@ renderLineChart(stock, {
 });
 ```
 
-Available keys: `bg`, `grid`, `text`, `axis`, `line`, `area`, `up`, `down`.
+Available keys: `bg`, `grid`, `text`, `axis`, `line`, `area`, `up`, `down`, `ext`.
+
+`ext` is the extended-hours color (grey by default) — see below.
+
+## Extended hours (pre-market & after-hours)
+
+When a stock was generated with `extendedHours: true`, the extended-session bars are rendered **Yahoo Finance–style**: the regular-session line stays solid, while pre-market and after-hours segments are drawn as **grey semi-transparent dots** linked by a thin dotted connector.
+
+```js
+const extended = generateStock({ bars: 200, interval: '1h', extendedHours: true });
+writeFileSync('extended.svg', renderLineChart(extended));
+```
+
+The treatment carries through to the other chart types too:
+
+- **line / area / multi-line / mixed** — grey dots + dotted connector for `pre`/`post` bars
+- **bar / candlestick** — the whole OHLC bar is drawn in `ext`
+- **volume panels** — extended-hours volume bars are grey instead of green/red
+
+```js
+// recolour the extended-hours series
+renderLineChart(extended, { colors: { ext: '#a1a1aa' } });
+```
+
+Also note: line and area charts space bars by **index**, so skipped weekends and overnight gaps compress away — a Friday→Monday gap never leaves empty space on the axis.
 
 ## Sizing and padding
 

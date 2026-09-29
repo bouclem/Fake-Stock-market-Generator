@@ -14,7 +14,8 @@ const THEMES = {
     line: '#2563eb',
     area: 'rgba(37, 99, 235, 0.18)',
     up: '#16a34a',
-    down: '#dc2626'
+    down: '#dc2626',
+    ext: '#9ca3af'
   },
   dark: {
     bg: '#0b1220',
@@ -24,9 +25,12 @@ const THEMES = {
     line: '#60a5fa',
     area: 'rgba(96, 165, 250, 0.22)',
     up: '#22c55e',
-    down: '#ef4444'
+    down: '#ef4444',
+    ext: '#6b7280'
   }
 };
+
+const CHART_DAY_MS = 24 * 60 * 60 * 1000;
 
 const CHART_DEFAULTS = {
   width: 1200,
@@ -95,6 +99,120 @@ function makeAxisBars(tMin, tMax, count) {
   return bars;
 }
 
+// Index of the bar closest to timestamp `t` (bars are time-sorted).
+function nearestBarIndex(bars, t) {
+  let lo = 0;
+  let hi = bars.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].time < t) lo = mid + 1; else hi = mid;
+  }
+  if (lo > 0 && t - bars[lo - 1].time <= bars[lo].time - t) return lo - 1;
+  return lo;
+}
+
+// Median gap between consecutive bars — the "typical" bar step.
+function medianGap(bars) {
+  if (bars.length < 2) return 0;
+  const gaps = [];
+  for (let i = 1; i < bars.length; i++) {
+    gaps.push(Math.max(0, bars[i].time - bars[i - 1].time));
+  }
+  gaps.sort((a, b) => a - b);
+  return gaps[gaps.length >> 1];
+}
+
+// Bars carrying a 'pre'/'post' session tag (extended market hours) render in
+// grey instead of the usual colors — same convention as Yahoo Finance.
+function isExtendedSession(b) {
+  return b.session === 'pre' || b.session === 'post';
+}
+
+/**
+ * Time-aware x mapping that compresses non-trading breaks (weekends,
+ * overnight) to a single bar slot. Uniform series get plain time mapping;
+ * only gaps wider than ~1.05× the median bar step collapse.
+ * @param {import('./generator.js').Bar[]} bars
+ * @param {{x:number,y:number,w:number,h:number}} plot
+ * @returns {(t:number)=>number}
+ */
+function makeTimeX(bars, plot) {
+  const n = bars.length;
+  if (n <= 1) return () => plot.x + plot.w / 2;
+  const times = bars.map((b) => b.time);
+  const cap = Math.max(1, medianGap(bars) * 1.05);
+  const cum = new Array(n);
+  cum[0] = 0;
+  for (let i = 1; i < n; i++) {
+    cum[i] = cum[i - 1] + Math.min(Math.max(0, times[i] - times[i - 1]), cap);
+  }
+  const total = cum[n - 1];
+  if (!(total > 0)) return () => plot.x + plot.w / 2;
+  return (t) => {
+    if (t <= times[0]) return plot.x;
+    if (t >= times[n - 1]) return plot.x + plot.w;
+    // Binary search: largest i with times[i] <= t
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (times[mid] <= t) lo = mid; else hi = mid - 1;
+    }
+    const i = lo;
+    const t0 = times[i];
+    const t1 = i + 1 < n ? times[i + 1] : t0;
+    const span = t1 - t0;
+    const frac = span > 0 ? (t - t0) / span : 0;
+    const comp = cum[i] + frac * Math.min(span, cap);
+    return plot.x + (comp / total) * plot.w;
+  };
+}
+
+/**
+ * Draw a close-price series. When no bar carries an extended-hours session
+ * tag this is a single solid polyline. With 'pre'/'post' bars present, the
+ * whole series gets a faint dotted grey connector, regular-session runs get
+ * the solid colored line, and each extended-hours point gets a grey
+ * semi-transparent dot (Yahoo-style).
+ * @param {{x:number,y:number}[]} pixels
+ * @param {(string|undefined)[]} sessions
+ * @param {string} color
+ * @param {string} extColor
+ */
+function buildSeriesLine(pixels, sessions, color, extColor) {
+  const pointStr = (p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+  const all = pixels.map(pointStr).join(' ');
+  if (!sessions.some((s) => s === 'pre' || s === 'post')) {
+    return `<polyline points="${all}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  const parts = [
+    `<polyline points="${all}" fill="none" stroke="${extColor}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="1 5" opacity="0.6"/>`
+  ];
+  let run = [];
+  const flush = () => {
+    if (run.length === 1) {
+      parts.push(`<circle cx="${run[0].x.toFixed(2)}" cy="${run[0].y.toFixed(2)}" r="2" fill="${color}"/>`);
+    } else if (run.length > 1) {
+      parts.push(`<polyline points="${run.map(pointStr).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+    }
+    run = [];
+  };
+  const dots = [];
+  for (let i = 0; i < pixels.length; i++) {
+    if (sessions[i] === 'pre' || sessions[i] === 'post') {
+      dots.push(pixels[i]);
+      flush();
+    } else {
+      run.push(pixels[i]);
+    }
+  }
+  flush();
+  for (const p of dots) {
+    parts.push(`<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="2" fill="${extColor}" opacity="0.55"/>`);
+  }
+  return parts.join('');
+}
+
 function escapeXml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -152,12 +270,16 @@ function formatPrice(n) {
   return n.toFixed(6);
 }
 
-function formatDateShort(time, multiYear) {
+function formatDateShort(time, multiYear, intraday) {
   const d = new Date(time);
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(d.getUTCDate()).padStart(2, '0');
-  return multiYear ? `${yyyy}-${mm}-${dd}` : `${mm}/${dd}`;
+  const date = multiYear ? `${yyyy}-${mm}-${dd}` : `${mm}/${dd}`;
+  if (!intraday) return date;
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mi = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${date} ${hh}:${mi}`;
 }
 
 function spansMultipleYears(bars) {
@@ -167,7 +289,7 @@ function spansMultipleYears(bars) {
   return last !== first;
 }
 
-function buildAxes(o, plot, range, bars) {
+function buildAxes(o, plot, range, bars, xOfBar) {
   if (!o.showAxes && !o.showGrid) return '';
 
   const yTicks = Math.max(2, Math.floor(o.yTicks));
@@ -194,15 +316,16 @@ function buildAxes(o, plot, range, bars) {
   // X axis (time) ticks — pick N evenly spaced bars (configurable via xTicks)
   if (o.showAxes) {
     const multiYear = spansMultipleYears(bars);
+    const intraday = bars.length > 1 && medianGap(bars) < CHART_DAY_MS;
     const requested = Math.max(2, Math.floor(o.xTicks));
     const xTicks = Math.min(requested, bars.length);
     for (let i = 0; i < xTicks; i++) {
       const idx = Math.round((i / Math.max(1, xTicks - 1)) * (bars.length - 1));
-      const x = plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
+      const x = xOfBar ? xOfBar(bars[idx], idx) : plot.x + (idx / Math.max(1, bars.length - 1)) * plot.w;
       // Anchor the first/last labels at the plot edges so they never crop.
       const anchor = i === 0 ? 'start' : i === xTicks - 1 ? 'end' : 'middle';
       parts.push(
-        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time, multiYear)}</text>`
+        `<text x="${x}" y="${plot.y + plot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(bars[idx].time, multiYear, intraday)}</text>`
       );
     }
   }
@@ -304,23 +427,20 @@ export function renderLineChart(stock, options) {
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const span = Math.max(1, tMax - tMin);
-  // Points are placed by timestamp so event markers and irregularly spaced
-  // bars line up correctly.
-  const xForTime = (t) => plot.x + ((t - tMin) / span) * plot.w;
-  const xFor = (b, i) => (n <= 1 ? plot.x + plot.w / 2 : xForTime(b.time));
+  // Points map by timestamp; gaps wider than ~1 bar step (weekends,
+  // overnight) compress so non-trading time doesn't stretch the axis.
+  const xForTime = makeTimeX(stock.bars, plot);
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
-  const points = stock.bars
-    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
-    .join(' ');
-
-  const axisBars = n <= 1 ? stock.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+  const pixels = stock.bars.map((b) => ({
+    x: xForTime(b.time),
+    y: yAt(plot, getValue(b), range)
+  }));
 
   const body =
-    buildAxes(o, plot, range, axisBars) +
+    buildAxes(o, plot, range, stock.bars, (b) => xForTime(b.time)) +
     buildEvents(evs, plot, o) +
-    `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
@@ -344,27 +464,24 @@ export function renderAreaChart(stock, options) {
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const span = Math.max(1, tMax - tMin);
-  const xForTime = (t) => plot.x + ((t - tMin) / span) * plot.w;
-  const xFor = (b, i) => (n <= 1 ? plot.x + plot.w / 2 : xForTime(b.time));
+  const xForTime = makeTimeX(stock.bars, plot);
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
-  const linePoints = stock.bars
-    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, getValue(b), range).toFixed(2)}`)
-    .join(' ');
+  const pixels = stock.bars.map((b) => ({
+    x: xForTime(b.time),
+    y: yAt(plot, getValue(b), range)
+  }));
 
-  const firstX = xFor(stock.bars[0], 0).toFixed(2);
-  const lastX = xFor(stock.bars[n - 1], n - 1).toFixed(2);
+  const firstX = pixels[0].x.toFixed(2);
+  const lastX = pixels[n - 1].x.toFixed(2);
   const baseY = (plot.y + plot.h).toFixed(2);
-  const areaPoints = `${firstX},${baseY} ${linePoints} ${lastX},${baseY}`;
-
-  const axisBars = n <= 1 ? stock.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+  const areaPoints = `${firstX},${baseY} ${pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} ${lastX},${baseY}`;
 
   const body =
-    buildAxes(o, plot, range, axisBars) +
+    buildAxes(o, plot, range, stock.bars, (b) => xForTime(b.time)) +
     buildEvents(evs, plot, o) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
-    `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
@@ -403,7 +520,7 @@ export function renderBarChart(stock, options) {
       const yLow  = yAt(plot, b.low,  range);
       const yOpen  = yAt(plot, b.open,  range);
       const yClose = yAt(plot, b.close, range);
-      const color = b.close >= b.open ? o.colors.up : o.colors.down;
+      const color = isExtendedSession(b) ? o.colors.ext : (b.close >= b.open ? o.colors.up : o.colors.down);
       return (
         `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
         `<line x1="${(x - tick).toFixed(2)}" y1="${yOpen.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yOpen.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
@@ -414,7 +531,11 @@ export function renderBarChart(stock, options) {
 
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  // Bars are index-spaced, so events resolve to the nearest bar's slot.
+  const xForTime = (t) => {
+    const idx = nearestBarIndex(stock.bars, t);
+    return n <= 1 ? innerX + innerW / 2 : innerX + (idx / (n - 1)) * innerW;
+  };
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const body =
@@ -460,8 +581,7 @@ export function renderCandlestickChart(stock, options) {
       const yLow  = yAt(plot, b.low,   range);
       const yOpen  = yAt(plot, b.open,  range);
       const yClose = yAt(plot, b.close, range);
-      const up = b.close >= b.open;
-      const color = up ? o.colors.up : o.colors.down;
+      const color = isExtendedSession(b) ? o.colors.ext : (b.close >= b.open ? o.colors.up : o.colors.down);
       const top = Math.min(yOpen, yClose);
       const bodyH = Math.max(1, Math.abs(yClose - yOpen));
       return (
@@ -473,7 +593,11 @@ export function renderCandlestickChart(stock, options) {
 
   const tMin = stock.bars[0].time;
   const tMax = stock.bars[n - 1].time;
-  const xForTime = (t) => plot.x + ((t - tMin) / Math.max(1, tMax - tMin)) * plot.w;
+  // Bars are index-spaced, so events resolve to the nearest bar's slot.
+  const xForTime = (t) => {
+    const idx = nearestBarIndex(stock.bars, t);
+    return n <= 1 ? innerX + innerW / 2 : innerX + (idx / (n - 1)) * innerW;
+  };
   const evs = resolveEvents(o.events, o, plot, tMin, tMax, xForTime);
 
   const body =
@@ -531,6 +655,7 @@ export function renderMultiLineChart(stocks, options = {}) {
     return {
       stock: s,
       points,
+      sessions: s.bars.map((b) => b.session),
       color: escapeXml(s.color || palette[i % palette.length])
     };
   });
@@ -617,10 +742,7 @@ export function renderMultiLineChart(stocks, options = {}) {
   }
 
   const lines = series
-    .map((s) => {
-      const points = s.pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
-      return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-    })
+    .map((s) => buildSeriesLine(s.pixels, s.sessions, s.color, o.colors.ext))
     .join('');
 
   // Build a synthetic "bars" array spanning the union, for axis labels
@@ -873,7 +995,7 @@ export function renderMixedChart(items, options = {}) {
       const v = isNetWorth ? b.value : (valueField === 'worth' ? b.worth : b.close);
       if (t < tMin) tMin = t;
       if (t > tMax) tMax = t;
-      return { t, v };
+      return { t, v, session: b.session };
     }).filter(p => p.v != null && Number.isFinite(p.v));
 
     if (points.length === 0) {
@@ -912,7 +1034,7 @@ export function renderMixedChart(items, options = {}) {
       }
       if (v < vMin) vMin = v;
       if (v > vMax) vMax = v;
-      return { t: p.t, v };
+      return { t: p.t, v, session: p.session };
     });
   });
 
@@ -922,12 +1044,11 @@ export function renderMixedChart(items, options = {}) {
 
   // Build SVG paths
   const lines = series.map(s => {
-    const points = s.normalizedPoints.map(p => {
-      const x = plot.x + ((p.t - tMin) / (tMax - tMin)) * plot.w;
-      const y = yAt(plot, p.v, range);
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    }).join(' ');
-    return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const pixels = s.normalizedPoints.map(p => ({
+      x: plot.x + ((p.t - tMin) / (tMax - tMin)) * plot.w,
+      y: yAt(plot, p.v, range)
+    }));
+    return buildSeriesLine(pixels, s.normalizedPoints.map(p => p.session), s.color, o.colors.ext);
   }).join('');
 
   // Build axis bars for date labels
@@ -1026,9 +1147,8 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
   const n = data.bars.length;
   const tMin = data.bars[0].time;
   const tMax = data.bars[n - 1].time;
-  const span = Math.max(1, tMax - tMin);
-  const xForTime = (t) => mainPlot.x + ((t - tMin) / span) * mainPlot.w;
-  const xFor = (b) => (n <= 1 ? mainPlot.x + mainPlot.w / 2 : xForTime(b.time));
+  const xForTime = makeTimeX(data.bars, mainPlot);
+  const xFor = (b) => xForTime(b.time);
 
   const getValue = (b) => b.close ?? b.value;
   const hasOHLC = data.bars[0].open != null;
@@ -1067,7 +1187,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
       const yLow = yAt(mainPlot, b.low, range);
       const yOpen = yAt(mainPlot, b.open, range);
       const yClose = yAt(mainPlot, b.close, range);
-      const color = b.close >= b.open ? o.colors.up : o.colors.down;
+      const color = isExtendedSession(b) ? o.colors.ext : (b.close >= b.open ? o.colors.up : o.colors.down);
       return (
         `<line x1="${x.toFixed(2)}" y1="${yHigh.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yLow.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
         `<line x1="${(x - tick).toFixed(2)}" y1="${yOpen.toFixed(2)}" x2="${x.toFixed(2)}" y2="${yOpen.toFixed(2)}" stroke="${color}" stroke-width="1.2"/>` +
@@ -1083,7 +1203,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
       const yLow = yAt(mainPlot, b.low, range);
       const yOpen = yAt(mainPlot, b.open, range);
       const yClose = yAt(mainPlot, b.close, range);
-      const color = b.close >= b.open ? o.colors.up : o.colors.down;
+      const color = isExtendedSession(b) ? o.colors.ext : (b.close >= b.open ? o.colors.up : o.colors.down);
       const top = Math.min(yOpen, yClose);
       const bodyH = Math.max(1, Math.abs(yClose - yOpen));
       return (
@@ -1093,17 +1213,16 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
     }).join('');
   } else {
     // 'line', 'area', or bar/candlestick on non-OHLC data (e.g. NetWorth)
-    const points = data.bars.map((b) => {
-      const x = xFor(b);
-      const y = yAt(mainPlot, getValue(b), range);
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    }).join(' ');
-    mainBody = `<polyline points="${points}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const pixels = data.bars.map((b) => ({
+      x: xFor(b),
+      y: yAt(mainPlot, getValue(b), range)
+    }));
+    mainBody = buildSeriesLine(pixels, data.bars.map((b) => b.session), o.colors.line, o.colors.ext);
     if (type === 'area') {
-      const firstX = xFor(data.bars[0]).toFixed(2);
-      const lastX = xFor(data.bars[n - 1]).toFixed(2);
+      const firstX = pixels[0].x.toFixed(2);
+      const lastX = pixels[n - 1].x.toFixed(2);
       const baseY = (mainPlot.y + mainPlot.h).toFixed(2);
-      const areaPoints = `${firstX},${baseY} ${points} ${lastX},${baseY}`;
+      const areaPoints = `${firstX},${baseY} ${pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} ${lastX},${baseY}`;
       mainBody = `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` + mainBody;
     }
   }
@@ -1114,25 +1233,33 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
     const x = xFor(b) - barWidth / 2;
     const h = volPlot.h * (b.volume / volMax);
     const y = volPlot.y + volPlot.h - h;
-    // Color: up if value increased, down if decreased
+    // Color: up if value increased, down if decreased; grey for extended hours
     const prev = i > 0 ? data.bars[i - 1] : b;
     const isUp = getValue(b) >= getValue(prev);
-    const color = isUp ? o.colors.up : o.colors.down;
+    const color = isExtendedSession(b) ? o.colors.ext : (isUp ? o.colors.up : o.colors.down);
     return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" fill="${color}" opacity="0.6"/>`;
   }).join('');
 
-  // X axis ticks (shared, time-mapped)
-  const axisBars = n <= 1 ? data.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
+  // X axis ticks (shared) — labels on real bars so weekend/holiday skips
+  // never print a date that has no data.
+  const axisBars = data.bars;
   const multiYear = spansMultipleYears(data.bars);
-  const xLabels = axisBars.map((ab, i) => {
-    const x = xForTime(ab.time);
-    const anchor = i === 0 ? 'start' : i === axisBars.length - 1 ? 'end' : 'middle';
-    return `<text x="${x.toFixed(2)}" y="${volPlot.y + volPlot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(ab.time, multiYear)}</text>`;
-  }).join('');
+  const intraday = n > 1 && medianGap(data.bars) < CHART_DAY_MS;
+  const xTickCount = Math.min(Math.max(2, Math.floor(o.xTicks)), n);
+  const xLabels = [];
+  for (let i = 0; i < xTickCount; i++) {
+    const idx = Math.round((i / Math.max(1, xTickCount - 1)) * (n - 1));
+    const x = xForTime(data.bars[idx].time);
+    const anchor = i === 0 ? 'start' : i === xTickCount - 1 ? 'end' : 'middle';
+    xLabels.push(
+      `<text x="${x.toFixed(2)}" y="${volPlot.y + volPlot.h + 20}" text-anchor="${anchor}" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatDateShort(data.bars[idx].time, multiYear, intraday)}</text>`
+    );
+  }
+  const xLabelRow = xLabels.join('');
 
   const body =
     // Main chart axes
-    buildAxes(o, mainPlot, range, axisBars) +
+    buildAxes(o, mainPlot, range, axisBars, (b) => xForTime(b.time)) +
     // Event markers span both panels
     buildEvents(evs, full, o) +
     mainBody +
@@ -1141,7 +1268,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
     // Volume bars
     volumeBars +
     // X axis labels (shared at bottom)
-    xLabels +
+    xLabelRow +
     buildTitle(o);
 
   return svgWrap(o, body);

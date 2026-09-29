@@ -19,9 +19,29 @@ import {
   renderCandlestickChart,
   renderMultiLineChart,
   renderNetWorthChart,
+  renderChartWithVolume,
+  renderMixedChart,
 
   // pages
   renderHtmlPage,
+
+  // splits
+  applySplit,
+  applySplits,
+  loadSplits,
+  loadSplitsSync,
+
+  // events
+  loadEvents,
+  loadEventsSync,
+
+  // numeric helpers
+  parseNumeric,
+  formatNumeric,
+  formatHumanNumber,
+  cleanNumericArray,
+  cleanJson,
+  parseJson,
 
   // helpers
   createRng,
@@ -63,8 +83,15 @@ const stock = generateStock({ symbol: 'NOVA', bars: 120, seed: 'demo' });
 | `seed`        | `number \| string`         | random                | reproducible output |
 | `prices`      | `number[]`                 | none                  | use your own close prices; `bars` becomes the array length |
 | `ohlc`        | `Bar[]`                    | none                  | use your own full OHLC bars verbatim |
+| `sharesOutstanding` | `number \| string`  | none                  | adds `worth` (close × shares) to every bar; accepts `"1.5M"`, `"1_500_000"` |
+| `weekends`    | `boolean`                  | `false`               | stocks only: include Saturday/Sunday bars |
+| `extendedHours` | `boolean`                | `false`               | stocks only, intraday: add pre-market + after-hours bars tagged via `bar.session` |
 
 `prices` and `ohlc` are mutually exclusive — passing both throws.
+
+#### Market hours & weekends (stocks)
+
+Generated stock bars follow a **UTC** market clock: regular session **09:30–16:00**, pre-market **04:00–09:30**, after-hours **16:00–20:00**. Weekends are skipped by default, and a `startDate` outside tradable times snaps forward to the next slot. `extendedHours: true` adds pre/post bars (intraday intervals only) and tags each bar with `session: 'pre' | 'regular' | 'post'`. `weekends: true` re-enables Saturday/Sunday bars. Both options are ignored for `kind: 'crypto'` (24/7). See [Generating data — Market hours](guides/generating.md#market-hours-weekends).
 
 #### Returns
 
@@ -93,6 +120,8 @@ Where `Bar` is:
   low: number;
   close: number;
   volume: number;
+  worth?: number;              // close × sharesOutstanding — only when sharesOutstanding is set
+  session?: 'pre' | 'regular' | 'post';  // only on intraday bars generated with extendedHours: true
 }
 ```
 
@@ -242,6 +271,41 @@ See [Multi-line comparison](guides/multi-line.md) for the full guide.
 
 ---
 
+### `renderChartWithVolume(data, type?, options?) -> string`
+
+Render a chart with a volume sub-panel below the price chart. `type` defaults to `'line'`; `'line'`, `'area'`, `'bar'`, and `'candlestick'` are supported. Works with stocks, net worth objects, or any data whose bars carry a `volume` field.
+
+```js
+renderChartWithVolume(stock, 'candlestick', { theme: 'dark' });
+renderChartWithVolume(netWorth);               // line chart + volume panel
+```
+
+Extra option on top of [chart options](#chart-options):
+
+| Option         | Type     | Default | Notes |
+|----------------|----------|---------|-------|
+| `volumeHeight` | `number` | `0.25`  | fraction of total height used by the volume panel (0–0.5) |
+
+### `renderMixedChart(items, options?) -> string`
+
+Plot **net worth**, **company market cap**, and **stock prices** together on one chart.
+
+```js
+renderMixedChart([
+  { data: person,  label: 'Alice Net Worth', valueField: 'value' },
+  { data: company, label: 'NOVA Market Cap', valueField: 'worth' },
+  { data: stock,   label: 'TECH Price',      valueField: 'close' }
+], { mode: 'normalized' });
+```
+
+Per item: `data` (`Stock` or `NetWorth`), `valueField` (`'value'`, `'worth'`, `'close'`, or `'auto'`), `label`, `color`.
+
+| Option   | Type                                       | Default        | Notes |
+|----------|--------------------------------------------|----------------|-------|
+| `mode`   | `'normalized' \| 'percent' \| 'absolute'`  | `'normalized'` | rebase to 100, show % change, or use raw values |
+
+---
+
 ## Chart options
 
 Shared by every chart renderer:
@@ -285,7 +349,7 @@ When events are present, `padding.top` is automatically increased by 20 px so la
 
 ### Color keys
 
-`bg`, `grid`, `text`, `axis`, `line`, `area`, `up`, `down`. Each theme provides defaults; `colors` overrides individual values without redefining the whole palette.
+`bg`, `grid`, `text`, `axis`, `line`, `area`, `up`, `down`, `ext`. Each theme provides defaults; `colors` overrides individual values without redefining the whole palette. `ext` is the extended-hours color — grey by default — used for pre-market/after-hours bars generated with `extendedHours: true` (dots on line charts, grey candles/OHLC/volume bars).
 
 ### Title behaviour
 
@@ -338,7 +402,8 @@ Parse an interval into a representative millisecond duration. For calendar units
 
 ```js
 parseInterval('1d');    // 86400000
-parseInterval('5m');    // 300000
+parseInterval('5min');  // 300000
+parseInterval('5m');    // 12960000000  ('m' = month since v2.0.0 — use 'min' for minutes)
 parseInterval(60_000);  // 60000  (numbers pass through, after validation)
 ```
 
@@ -357,6 +422,80 @@ parseIntervalSpec('1mo');
 
 ---
 
+## Splits
+
+### `applySplit(data, splitDate, ratio) -> Object`
+
+Apply a value split to any time-series data — stocks, net worth, companies, or custom objects with a `bars` array. Adjusts historical values before `splitDate` so the series stays continuous. Ratio accepts `"3:1"`, `"1:10"`, or plain numbers (`3`, `0.1`).
+
+```js
+const splitStock = applySplit(stock, '2024-06-15', '2:1');
+```
+
+### `applySplits(data, splits) -> Object`
+
+Apply a chronological list of splits in one call.
+
+```js
+const adjusted = applySplits(stock, [
+  { date: '2024-03-15', split: '2:1' },
+  { date: '2024-09-20', ratio: 0.5 }   // reverse split
+]);
+```
+
+### `loadSplits(source)` / `loadSplitsSync(source) -> SplitDef[]`
+
+Normalise splits from an array, a `{ splits: [...] }` envelope, or a `.json` file path (`loadSplits` is the async variant for file sources).
+
+```js
+const splits = loadSplitsSync('./splits.json');
+const adjusted = applySplits(stock, splits);
+```
+
+---
+
+## Events
+
+### `loadEvents(source)` / `loadEventsSync(source) -> ChartEvent[]`
+
+Normalise the `events` chart option from an array, a `.json` file path, a single event object, or a `{ name, events: [...] }` envelope. `null`/`undefined` returns `[]`.
+
+```js
+const events = loadEventsSync('milestones.json');
+renderLineChart(stock, { events });
+```
+
+---
+
+## Numeric helpers
+
+### `parseNumeric(value) -> number`
+
+Parse numbers written with underscores (`"1_200_000"`) or suffixes (`"1.5M"`, `"2.3B"`, `"500K"`). Plain numbers pass through; `null`/`undefined` are returned as-is.
+
+### `formatNumeric(value) -> string`
+
+Format a number with underscore grouping: `1200000` → `"1_200_000"`.
+
+### `formatHumanNumber(value) -> string`
+
+Short suffixes for axis labels: `5000` → `"5K"`, `10200` → `"10.2K"`, `1500000` → `"1.5M"`, `1e15` → `"1QD"`. Used automatically on chart axes for values ≥ 5000.
+
+### `cleanNumericArray(arr) -> number[]`
+
+Map `parseNumeric` over an array, filtering out unparseable entries.
+
+### `cleanJson(text) -> string` / `parseJson(text) -> Object`
+
+`cleanJson` strips underscores from numeric literals in a JSON string (so `JSON.parse` accepts it); `parseJson` does both steps in one call.
+
+```js
+const config = parseJson(readFileSync('config.json', 'utf8'));
+// or: JSON.parse(cleanJson(rawText))
+```
+
+---
+
 ## Type signatures (TypeScript-ish)
 
 ```ts
@@ -368,6 +507,8 @@ type Bar = {
   low: number;
   close: number;
   volume: number;
+  worth?: number;                       // when sharesOutstanding is set
+  session?: 'pre' | 'regular' | 'post'; // when extendedHours is true
 };
 
 type Stock = {
@@ -412,7 +553,7 @@ type ChartOptions = {
   padding?: { top: number; right: number; bottom: number; left: number };
   colors?: Partial<{
     bg: string; grid: string; text: string; axis: string;
-    line: string; area: string; up: string; down: string;
+    line: string; area: string; up: string; down: string; ext: string;
   }>;
   events?: ChartEvent[];
 };

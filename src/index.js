@@ -17,4 +17,4 @@ export {
 } from './svg.js';
 export { renderHtmlPage } from './html.js';
 export { createRng } from './prng.js';
-export { parseInterval } from './interval.js';
+export { parseInterval, parseIntervalSpec } from './interval.js';

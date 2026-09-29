@@ -36,6 +36,40 @@ Every option is optional. Here's what each one does:
 | `interval`   | Bar size. See [Intervals](intervals.md). |
 | `startDate`  | Timestamp of the first bar. Date object, ms epoch, or ISO string. |
 | `seed`       | Anything (string or number). Same seed → same output. |
+| `weekends`   | `true` to include Saturday/Sunday bars. Stocks skip them by default. |
+| `extendedHours` | `true` to add pre-market and after-hours bars (intraday only). See below. |
+| `sharesOutstanding` | Adds a `worth` field (close × shares) to every bar. Accepts `"1.5M"`, `"1_500_000"`. |
+
+## Market hours & weekends
+
+Generated **stock** bars follow a realistic market schedule on a **UTC clock**:
+
+| Session       | UTC window      | Included by default?            |
+|---------------|-----------------|---------------------------------|
+| Pre-market    | 04:00 – 09:30   | only with `extendedHours: true` |
+| Regular       | 09:30 – 16:00   | yes                             |
+| After-hours   | 16:00 – 20:00   | only with `extendedHours: true` |
+| Weekends      | Sat / Sun       | only with `weekends: true`      |
+
+Bars that would land outside tradable times snap **forward** to the next valid slot, and charts compress the skipped gaps — so weekends and overnights never appear as empty space (the same thing Yahoo Finance does).
+
+```js
+// Default: weekdays only, regular session only
+const weekdays = generateStock({ bars: 60, interval: '1d' });
+
+// One line to add weekends back
+const allWeek = generateStock({ bars: 60, interval: '1d', weekends: true });
+
+// One line to add pre-market + after-hours (intraday intervals)
+const extended = generateStock({ bars: 200, interval: '1h', extendedHours: true });
+extended.bars[0].session; // 'pre' | 'regular' | 'post'
+```
+
+!!! info "Details that matter"
+    - `extendedHours` only affects **intraday** intervals (< 1 day). Daily/weekly/monthly bars have no session.
+    - Both options are **ignored for `kind: 'crypto'`** — crypto trades 24/7, gets no `session` field, and its timestamps are untouched.
+    - Bars built from your own `prices`/`ohlc` still get schedule-aligned timestamps for stocks.
+    - On charts, extended-hours bars render **Yahoo Finance–style**: grey semi-transparent dots on line/area charts, grey bars/candles/volume elsewhere. Override via `colors.ext` (see [Charts](charts.md#color-overrides)).
 
 ## Stock vs crypto
 
@@ -52,6 +86,8 @@ const btc  = generateStock({ kind: 'crypto', symbol: 'BTC',  bars: 365 });
 ```
 
 You can still override anything individually — `kind` only affects values you didn't set.
+
+Crypto series also ignore the market schedule entirely: `weekends` and `extendedHours` have no effect, bars run 24/7 including Saturdays and Sundays, and no `session` field is added.
 
 ## Markets
 

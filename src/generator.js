@@ -12,7 +12,7 @@
 
 import { createRng } from './prng.js';
 import { makeSymbol } from './symbols.js';
-import { parseIntervalSpec, stepTime } from './interval.js';
+import { parseIntervalSpec, stepTime, snapToTradingTime, sessionAt } from './interval.js';
 import { parseNumeric } from './numeric.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -28,6 +28,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number} close
  * @property {number} volume
  * @property {number} [worth]  - Total company worth at close (close × sharesOutstanding). Present only when sharesOutstanding is set.
+ * @property {'pre'|'regular'|'post'} [session] - Market session of the bar (UTC clock). Present only on intraday stock bars generated with `extendedHours: true`.
  */
 
 /**
@@ -64,6 +65,13 @@ const YEAR_MS = 365 * DAY_MS;
  *   numbers and strings like "1_500_000" or "1.5M". When set, each bar gets a
  *   `worth` field equal to `close × sharesOutstanding`, representing total
  *   company valuation.
+ * @property {boolean} [weekends]            - `kind: 'stock'` only: include
+ *   Saturday/Sunday bars (default: `false` — bars skip weekends like a real exchange).
+ * @property {boolean} [extendedHours]       - `kind: 'stock'` only, intraday
+ *   intervals: also generate pre-market (04:00–09:30) and after-hours
+ *   (16:00–20:00) bars on a UTC clock, each tagged with `bar.session`
+ *   (default: `false` — bars stay inside the 09:30–16:00 regular session).
+ *   Both flags are ignored for `kind: 'crypto'`, which trades 24/7.
  */
 
 const DEFAULTS = {
@@ -183,6 +191,12 @@ function validateOptions(opts) {
       throw new Error(`"sharesOutstanding" must be a positive number, got ${opts.sharesOutstanding}`);
     }
   }
+  if (opts.weekends !== undefined && typeof opts.weekends !== 'boolean') {
+    throw new Error(`"weekends" must be a boolean, got ${typeOf(opts.weekends)}`);
+  }
+  if (opts.extendedHours !== undefined && typeof opts.extendedHours !== 'boolean') {
+    throw new Error(`"extendedHours" must be a boolean, got ${typeOf(opts.extendedHours)}`);
+  }
 }
 
 /**
@@ -236,6 +250,32 @@ export function generateStock(options = {}) {
       ? new Date(opts.startDate).getTime()
       : stepTime(Date.now(), intervalSpec, -barCount);
 
+  // Stocks follow a market schedule (Mon–Fri, session hours on a UTC clock);
+  // crypto and everything else keep a plain uniform grid. See interval.js.
+  const scheduled = opts.kind === 'stock';
+  const intraday = scheduled && !intervalSpec.calendar && intervalMs < DAY_MS;
+  const schedOpts = {
+    weekends: opts.weekends === true,
+    extendedHours: opts.extendedHours === true,
+    intraday
+  };
+
+  // Sequential cursor — each bar steps from the previous *emitted* time, so
+  // skipped weekends/overnights don't leave holes in the series.
+  let prevTime = null;
+  const timeAt = (i) => {
+    if (!scheduled) return stepTime(startTime, intervalSpec, i);
+    if (prevTime === null) {
+      return snapToTradingTime(stepTime(startTime, intervalSpec, i), schedOpts);
+    }
+    if (intervalSpec.calendar) {
+      let t = snapToTradingTime(stepTime(startTime, intervalSpec, i), schedOpts);
+      while (t <= prevTime) t = snapToTradingTime(t + DAY_MS, schedOpts);
+      return t;
+    }
+    return snapToTradingTime(prevTime + intervalMs, schedOpts);
+  };
+
   const bars = new Array(barCount);
   let firstOpen;
 
@@ -243,7 +283,7 @@ export function generateStock(options = {}) {
     // Mode 1: caller supplied full bars. Fill in time/date/volume if missing.
     for (let i = 0; i < barCount; i++) {
       const src = opts.ohlc[i];
-      const time = Number.isFinite(src.time) ? src.time : stepTime(startTime, intervalSpec, i);
+      const time = Number.isFinite(src.time) ? src.time : timeAt(i);
       bars[i] = {
         time,
         date: typeof src.date === 'string' ? src.date : new Date(time).toISOString(),
@@ -253,6 +293,8 @@ export function generateStock(options = {}) {
         close: round2(src.close),
         volume: Number.isFinite(src.volume) ? src.volume : Math.max(1, Math.round(500_000 + rng.next() * 1_500_000))
       };
+      if (typeof src.session === 'string') bars[i].session = src.session;
+      prevTime = time;
     }
     firstOpen = bars[0].open;
   } else if (opts.prices) {
@@ -262,7 +304,7 @@ export function generateStock(options = {}) {
     for (let i = 0; i < barCount; i++) {
       const close = opts.prices[i];
       const synth = synthBarFromClose(prevClose, close, rng);
-      const time = stepTime(startTime, intervalSpec, i);
+      const time = timeAt(i);
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
@@ -273,6 +315,7 @@ export function generateStock(options = {}) {
         volume: synth.volume
       };
       prevClose = close;
+      prevTime = time;
     }
   } else {
     // Mode 3: full GBM walk.
@@ -312,7 +355,7 @@ export function generateStock(options = {}) {
         Math.round((500_000 + rng.next() * 1_500_000) * (1 + move * 20))
       );
 
-      const time = stepTime(startTime, intervalSpec, i);
+      const time = timeAt(i);
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
@@ -323,6 +366,16 @@ export function generateStock(options = {}) {
         volume
       };
       price = close;
+      prevTime = time;
+    }
+  }
+
+  // Tag market session on intraday stock bars when extended hours are on —
+  // renderers draw 'pre'/'post' bars as grey dots (Yahoo-style).
+  if (intraday && opts.extendedHours === true) {
+    for (const b of bars) {
+      const s = sessionAt(b.time);
+      if (s !== 'closed') b.session = s;
     }
   }
 

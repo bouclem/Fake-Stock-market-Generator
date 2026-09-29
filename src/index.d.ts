@@ -15,6 +15,8 @@ export interface Bar {
   volume: number;
   /** close × sharesOutstanding — present only when sharesOutstanding is set */
   worth?: number;
+  /** market session (UTC clock) — present on intraday stock bars generated with `extendedHours: true` */
+  session?: 'pre' | 'regular' | 'post';
 }
 
 export interface Stock {
@@ -90,6 +92,12 @@ export interface GenerateStockOptions {
   ohlc?: Partial<Bar>[];
   /** Accepts numbers and strings like "1_500_000" or "1.5M" */
   sharesOutstanding?: number | string;
+  /** stocks only: include Saturday/Sunday bars (default: false — weekends are skipped) */
+  weekends?: boolean;
+  /** stocks only, intraday intervals: also generate pre-market (04:00–09:30) and
+   *  after-hours (16:00–20:00) bars on a UTC clock, tagged via `bar.session`.
+   *  Ignored for `kind: 'crypto'` (24/7). */
+  extendedHours?: boolean;
 }
 
 export interface GenerateMarketOptions extends Omit<GenerateStockOptions, 'symbol'> {
@@ -160,6 +168,14 @@ export function createRng(seed?: number | string): Rng;
 // ---------- Intervals ----------
 
 export function parseInterval(interval: number | string): number;
+export interface IntervalSpec {
+  unit: string;
+  n: number;
+  calendar: boolean;
+  /** representative milliseconds (approximate for calendar units) */
+  ms: number;
+}
+export function parseIntervalSpec(interval: number | string): IntervalSpec;
 
 // ---------- Charts ----------
 
@@ -172,6 +188,8 @@ export interface ChartColors {
   area?: string;
   up?: string;
   down?: string;
+  /** extended-hours (pre/post market) series color — grey by default */
+  ext?: string;
 }
 
 export interface ChartPadding {

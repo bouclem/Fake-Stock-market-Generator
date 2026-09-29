@@ -46,6 +46,22 @@ That's it. One stock, one year of daily bars, one SVG chart.
 
 </div>
 
+## All pages
+
+- [Getting started](getting-started.md) — install and your first chart.
+- Guides
+    - [Generating data](guides/generating.md) — `generateStock`, `generateMarket`, market hours & weekends.
+    - [Custom data](guides/custom-data.md) — bring your own prices/OHLC, JSON round-trips.
+    - [Charts](guides/charts.md) — the four chart types, themes, events, extended-hours styling.
+    - [Net worth](guides/net-worth.md) — generate and render net worth series.
+    - [Multi-line comparison](guides/multi-line.md) — several companies on one chart.
+    - [HTML page builder](guides/html-page.md) — self-contained dashboard pages.
+    - [Intervals](guides/intervals.md) — fixed and calendar-aware bar sizes.
+- [API reference](api-reference.md) — every function and option.
+- [Recipes](recipes.md) — copy-paste examples.
+- [Glossary](glossary.md) — finance and package terms.
+- [Changelog](changelog.md) — version history.
+
 ## Install
 
 === "npm"
