@@ -9,6 +9,8 @@ All notable changes to this project are documented here.
 - `weekends: true` option on `generateStock`/`generateMarket` — one line to include Saturday/Sunday bars again.
 - `extendedHours: true` option — intraday stock bars additionally cover pre-market (04:00–09:30) and after-hours (16:00–20:00), each tagged `bar.session: 'pre' | 'regular' | 'post'`.
 - Extended-hours bars render Yahoo Finance–style in every chart: grey semi-transparent dots with a dotted connector on line/area/multi-line/mixed charts, grey candles/bars on OHLC charts, and grey volume bars. Override via `colors.ext`.
+- **Session-anchored intraday grid**: sub-day bars re-anchor at each session's open, so `1h` lands on `04:00…09:00` (pre), `09:30…15:30` (regular), `16:00…19:00` (post) instead of stepping blindly across session boundaries.
+- **Weekly bars anchor to Mondays** — a `1w` series always lands on Mondays regardless of `startDate`'s weekday.
 - `parseIntervalSpec` is now exported from the package root (it was previously internal-only).
 - `colors.ext` chart color override; `Bar.session` added to `index.d.ts`.
 

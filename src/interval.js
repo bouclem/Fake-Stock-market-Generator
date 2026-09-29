@@ -199,3 +199,53 @@ export function snapToTradingTime(ms, { weekends = false, extendedHours = false,
   }
   return t;
 }
+
+// Session windows as [openMin, closeMin) pairs — the bar grid re-anchors at
+// each session's open, so hourly bars land on 04:00..09:00 (pre),
+// 09:30..15:30 (regular) and 16:00..19:00 (post) instead of stepping blindly
+// across the boundaries.
+const REG_SESSION = [REG_OPEN_MIN, REG_CLOSE_MIN];
+const EXT_SESSIONS = [
+  [PRE_OPEN_MIN, REG_OPEN_MIN],
+  [REG_OPEN_MIN, REG_CLOSE_MIN],
+  [REG_CLOSE_MIN, POST_CLOSE_MIN]
+];
+
+/**
+ * Next intraday bar time on the session-anchored grid.
+ * @param {number} t - earliest allowed timestamp (inclusive)
+ * @param {number} stepMs - bar step in milliseconds (< 1 day)
+ * @param {{weekends?: boolean, extendedHours?: boolean}} [opts]
+ * @returns {number} first grid timestamp >= t
+ */
+export function nextSessionBarTime(t, stepMs, { weekends = false, extendedHours = false } = {}) {
+  const sessions = extendedHours ? EXT_SESSIONS : [REG_SESSION];
+  let dayStart = t - msOfDay(t);
+  for (let d = 0; d < 10; d++) {
+    if (weekends || !isWeekendUTC(dayStart)) {
+      for (const [open, close] of sessions) {
+        const openT = dayStart + open * MINUTE_MS;
+        const closeT = dayStart + close * MINUTE_MS;
+        if (t >= closeT) continue;         // this session is already over
+        if (t <= openT) return openT;      // before the open → bar at the open
+        const k = Math.ceil((t - openT) / stepMs);
+        const cand = openT + k * stepMs;
+        if (cand < closeT) return cand;    // next grid point inside the session
+      }
+    }
+    dayStart += DAY_LEN_MS;                // try the next day
+  }
+  return t;
+}
+
+/**
+ * Snap a timestamp forward to the next Monday, keeping the time-of-day.
+ * Used to anchor weekly stock bars so they always land on Mondays
+ * (the convention used by real weekly candles).
+ * @param {number} ms
+ * @returns {number}
+ */
+export function anchorToMonday(ms) {
+  const day = new Date(ms).getUTCDay();
+  return ms + ((8 - day) % 7) * DAY_LEN_MS;
+}

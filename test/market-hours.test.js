@@ -86,6 +86,38 @@ test('crypto ignores the market schedule entirely', () => {
   assert.ok(s.bars.every((b) => b.session === undefined), 'no session tags on crypto');
 });
 
+test('weekly stock bars are anchored to Mondays', () => {
+  const s = generateStock({ seed: 'mon', bars: 12, interval: '1w', startDate: '2024-01-03' }); // Wednesday
+  for (const b of s.bars) {
+    assert.equal(utcDay(b.time), 1, `weekly bar not on Monday: ${b.date}`);
+  }
+});
+
+test('intraday bars land on the session-anchored grid', () => {
+  const s = generateStock({ seed: 'grid', bars: 40, interval: '1h', startDate: '2024-01-01T09:47:00Z' });
+  assert.equal(todMin(s.bars[0].time), 630, '09:47 start snaps to the next grid point 10:30');
+  for (const b of s.bars) {
+    const m = todMin(b.time);
+    assert.ok(m >= 570 && m < 960);
+    assert.equal(m % 60, 30, `off the :30 grid: ${b.date}`); // anchored at 09:30 open
+  }
+});
+
+test('extended-hours grid re-anchors at each session open', () => {
+  const s = generateStock({ seed: 'grid2', bars: 60, interval: '1h', startDate: '2024-01-01T00:00:00Z', extendedHours: true });
+  const tods = new Set(s.bars.map((b) => todMin(b.time)));
+  assert.ok(tods.has(240), 'has a 04:00 pre-market bar');
+  assert.ok(tods.has(570), 'has the 09:30 regular-open bar');
+  assert.ok(tods.has(960), 'has the 16:00 after-hours-open bar');
+});
+
+test('crypto weekly bars keep the start weekday', () => {
+  const s = generateStock({ kind: 'crypto', seed: 'cw', bars: 8, interval: '1w', startDate: '2024-01-03' }); // Wednesday
+  for (const b of s.bars) {
+    assert.equal(utcDay(b.time), 3, 'crypto weekly should not anchor to Monday');
+  }
+});
+
 test('prices mode timestamps follow the trading schedule', () => {
   const s = generateStock({ prices: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], interval: '1d', startDate: '2024-01-05' }); // Friday
   for (const b of s.bars) {

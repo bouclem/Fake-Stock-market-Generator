@@ -12,7 +12,7 @@
 
 import { createRng } from './prng.js';
 import { makeSymbol } from './symbols.js';
-import { parseIntervalSpec, stepTime, snapToTradingTime, sessionAt } from './interval.js';
+import { parseIntervalSpec, stepTime, snapToTradingTime, nextSessionBarTime, anchorToMonday, sessionAt } from './interval.js';
 import { parseNumeric } from './numeric.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -265,8 +265,16 @@ export function generateStock(options = {}) {
   let prevTime = null;
   const timeAt = (i) => {
     if (!scheduled) return stepTime(startTime, intervalSpec, i);
+    if (intraday) {
+      // Session-anchored grid: every session re-anchors at its open, so an
+      // hourly series lands on 04:00..09:00 / 09:30..15:30 / 16:00..19:00.
+      return nextSessionBarTime(prevTime === null ? startTime : prevTime + 1, intervalMs, schedOpts);
+    }
     if (prevTime === null) {
-      return snapToTradingTime(stepTime(startTime, intervalSpec, i), schedOpts);
+      let t = snapToTradingTime(stepTime(startTime, intervalSpec, i), schedOpts);
+      // Weekly stock bars always anchor to Monday (real weekly candles).
+      if (intervalSpec.unit === 'w') t = anchorToMonday(t);
+      return t;
     }
     if (intervalSpec.calendar) {
       let t = snapToTradingTime(stepTime(startTime, intervalSpec, i), schedOpts);

@@ -91,7 +91,7 @@ const stock = generateStock({ symbol: 'NOVA', bars: 120, seed: 'demo' });
 
 #### Market hours & weekends (stocks)
 
-Generated stock bars follow a **UTC** market clock: regular session **09:30–16:00**, pre-market **04:00–09:30**, after-hours **16:00–20:00**. Weekends are skipped by default, and a `startDate` outside tradable times snaps forward to the next slot. `extendedHours: true` adds pre/post bars (intraday intervals only) and tags each bar with `session: 'pre' | 'regular' | 'post'`. `weekends: true` re-enables Saturday/Sunday bars. Both options are ignored for `kind: 'crypto'` (24/7). See [Generating data — Market hours](guides/generating.md#market-hours-weekends).
+Generated stock bars follow a **UTC** market clock: regular session **09:30–16:00**, pre-market **04:00–09:30**, after-hours **16:00–20:00**. Weekends are skipped by default, and a `startDate` outside tradable times snaps forward to the next slot. `extendedHours: true` adds pre/post bars (intraday intervals only) and tags each bar with `session: 'pre' | 'regular' | 'post'`. `weekends: true` re-enables Saturday/Sunday bars. Intraday bars anchor to each session's open, and `"1w"` bars always land on Mondays. Both options are ignored for `kind: 'crypto'` (24/7). See [Generating data — Market hours](guides/generating.md#market-hours-weekends).
 
 #### Returns
 

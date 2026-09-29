@@ -191,7 +191,7 @@ const extended = generateStock({ bars: 200, interval: '1h', extendedHours: true 
 // every bar is tagged: bar.session === 'pre' | 'regular' | 'post'
 ```
 
-`extendedHours` only affects intraday intervals (< 1 day). Both options are **ignored for `kind: 'crypto'`** — crypto bars run 24/7 with no sessions and no `session` field. Bars built from your own `prices`/`ohlc` still get schedule-aligned timestamps for stocks.
+`extendedHours` only affects intraday intervals (< 1 day). Intraday bars are **anchored to each session's open** — hourly bars land on `04:00…09:00` (pre), `09:30…15:30` (regular), `16:00…19:00` (post) instead of drifting across session boundaries. **Weekly stock bars always land on Mondays** like real weekly candles. Both options are **ignored for `kind: 'crypto'`** — crypto bars run 24/7 with no sessions and no `session` field. Bars built from your own `prices`/`ohlc` still get schedule-aligned timestamps for stocks.
 
 ### `generateMarket({ count, stocks, ...stockOptions }) -> Stock[]`
 

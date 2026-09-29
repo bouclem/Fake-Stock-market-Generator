@@ -96,7 +96,9 @@ export interface GenerateStockOptions {
   weekends?: boolean;
   /** stocks only, intraday intervals: also generate pre-market (04:00–09:30) and
    *  after-hours (16:00–20:00) bars on a UTC clock, tagged via `bar.session`.
-   *  Ignored for `kind: 'crypto'` (24/7). */
+   *  Intraday bars are anchored to each session's open (e.g. hourly bars land on
+   *  04:00…09:00 pre / 09:30…15:30 regular / 16:00…19:00 post), and weekly stock
+   *  bars always land on Mondays. Ignored for `kind: 'crypto'` (24/7). */
   extendedHours?: boolean;
 }
 

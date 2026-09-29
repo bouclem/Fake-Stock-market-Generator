@@ -72,7 +72,7 @@ Which part of the trading day an intraday stock bar belongs to. The package uses
 
 ## Pre-market / after-hours (extended hours)
 
-Trading outside the regular 09:30–16:00 window. Generated stock bars include them only when you pass `extendedHours: true`; on charts they render as grey semi-transparent dots (Yahoo Finance–style) instead of the solid regular-session line.
+Trading outside the regular 09:30–16:00 window. Generated stock bars include them only when you pass `extendedHours: true`; on charts they render as grey semi-transparent dots (Yahoo Finance–style) instead of the solid regular-session line. Intraday bars are anchored to each session's open, so hourly bars land on `04:00…09:00` / `09:30…15:30` / `16:00…19:00`.
 
 ## Weekends
 

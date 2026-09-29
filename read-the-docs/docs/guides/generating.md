@@ -67,6 +67,8 @@ extended.bars[0].session; // 'pre' | 'regular' | 'post'
 
 !!! info "Details that matter"
     - `extendedHours` only affects **intraday** intervals (< 1 day). Daily/weekly/monthly bars have no session.
+    - Intraday bars are **anchored to each session's open** — hourly bars land on `04:00…09:00` (pre), `09:30…15:30` (regular), `16:00…19:00` (post). A start time like `09:47` snaps forward to the next grid point (`10:30`).
+    - **Weekly (`"1w"`) stock bars always land on Mondays**, matching real weekly candles.
     - Both options are **ignored for `kind: 'crypto'`** — crypto trades 24/7, gets no `session` field, and its timestamps are untouched.
     - Bars built from your own `prices`/`ohlc` still get schedule-aligned timestamps for stocks.
     - On charts, extended-hours bars render **Yahoo Finance–style**: grey semi-transparent dots on line/area charts, grey bars/candles/volume elsewhere. Override via `colors.ext` (see [Charts](charts.md#color-overrides)).
