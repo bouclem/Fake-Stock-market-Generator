@@ -80,6 +80,8 @@ const stock = generateStock({ symbol: 'NOVA', bars: 120, seed: 'demo' });
 | `bars`        | `number`                   | `100`                 | positive integer |
 | `interval`    | `number \| string`         | `"1d"`                | see [Intervals](guides/intervals.md) |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
+| `endDate`     | `Date \| number \| string` | none                  | anchor the **last** bar instead; `startDate` computed backward (exclusive with `startDate`) |
+| `pricePrecision` | `number`              | auto                  | fixed decimals (0–8) for price fields; omit for automatic rounding |
 | `seed`        | `number \| string`         | random                | reproducible output |
 | `prices`      | `number[]`                 | none                  | use your own close prices; `bars` becomes the array length |
 | `ohlc`        | `Bar[]`                    | none                  | use your own full OHLC bars verbatim |
@@ -105,6 +107,8 @@ A `Stock` object:
   kind: 'stock' | 'crypto';
   startPrice: number;
   interval: number;            // milliseconds (approximate for calendar units)
+  sharesOutstanding: number | null;  // total shares — enables bar.worth
+  pricePrecision: number | null;     // decimals used for prices (null = automatic)
   bars: Bar[];
 }
 ```
@@ -163,6 +167,8 @@ const nw = generateNetWorth({ name: 'Alice', startValue: 50000, bars: 120, inter
 | `bars`        | `number`                   | `100`                 | positive integer |
 | `interval`    | `number \| string`         | `"1mo"`               | bar size |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
+| `endDate`     | `Date \| number \| string` | none                  | anchor the **last** bar instead (lands exactly; exclusive with `startDate`) |
+| `pricePrecision` | `number`              | auto                  | fixed decimals (0–8) for values |
 | `seed`        | `number \| string`         | random                | reproducible output |
 | `values`      | `number[]`                 | none                  | custom net worth values, one per bar |
 
@@ -175,6 +181,7 @@ A `NetWorth` object:
   name: string | null;
   startValue: number;
   interval: number;            // milliseconds
+  pricePrecision: number | null;     // decimals used for values (null = automatic)
   bars: NetWorthBar[];
   _type: 'networth';           // used by fromJSON for type detection
 }
@@ -264,8 +271,9 @@ Multi-line specific options on top of [chart options](#chart-options):
 | Option   | Type                       | Default        | Notes |
 |----------|----------------------------|----------------|-------|
 | `mode`   | `'normalized' \| 'price'`  | `'normalized'` | rebase to 100, or use raw values |
-| `area`   | `boolean`                  | `false`        | translucent gradient fills under each line |
+| `area`   | `boolean`                  | `false`        | translucent fills under each line (same look as the area chart) |
 | `legend` | `boolean`                  | `true`         | show the symbol legend in top-left |
+| `valueMode` | `'price' \| 'worth'`    | `'price'`      | `'worth'` plots market cap (`bar.worth`) — needs `sharesOutstanding` on every stock |
 
 See [Multi-line comparison](guides/multi-line.md) for the full guide.
 
@@ -273,7 +281,7 @@ See [Multi-line comparison](guides/multi-line.md) for the full guide.
 
 ### `renderChartWithVolume(data, type?, options?) -> string`
 
-Render a chart with a volume sub-panel below the price chart. `type` defaults to `'line'`; `'line'`, `'area'`, `'bar'`, and `'candlestick'` are supported. Works with stocks, net worth objects, or any data whose bars carry a `volume` field.
+Render a chart with a volume sub-panel below the price chart. `type` defaults to `'line'`; `'line'`, `'area'`, `'bar'`, and `'candlestick'` are supported. Works with stocks, net worth objects, or any data whose bars carry a `volume` field. `valueMode: 'worth'` works on the `line`/`area` types (`bar`/`candlestick` reject it — one value can't be drawn as OHLC).
 
 ```js
 renderChartWithVolume(stock, 'candlestick', { theme: 'dark' });
@@ -322,6 +330,9 @@ Shared by every chart renderer:
   yTicks: 5,                                    // Y-axis price label count
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
   colors: { line: '#2563eb' },                  // override any single color
+  valueMode: 'worth',                           // plot bar.worth instead of price (needs sharesOutstanding)
+  trend: true,                                  // single-series: green segments rising, red falling
+  pricePrecision: 2,                            // fixed decimals on y-axis labels (default: data's own, else auto)
   events: [                                     // annotate specific dates
     { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
     { date: '2024-07-01', label: 'Split' }      // color defaults to theme line color
@@ -518,6 +529,8 @@ type Stock = {
   kind: 'stock' | 'crypto';
   startPrice: number;
   interval: number;
+  sharesOutstanding: number | null;
+  pricePrecision: number | null;
   bars: Bar[];
 };
 
@@ -525,12 +538,14 @@ type NetWorthBar = {
   time: number;
   date: string;
   value: number;
+  volume: number;
 };
 
 type NetWorth = {
   name: string | null;
   startValue: number;
   interval: number;
+  pricePrecision: number | null;
   bars: NetWorthBar[];
   _type: 'networth';
 };
@@ -555,6 +570,9 @@ type ChartOptions = {
     bg: string; grid: string; text: string; axis: string;
     line: string; area: string; up: string; down: string; ext: string;
   }>;
+  valueMode?: 'price' | 'worth';   // worth needs sharesOutstanding
+  trend?: boolean;                 // single-series: green/red per direction
+  pricePrecision?: number;         // fixed decimals on y-axis labels
   events?: ChartEvent[];
 };
 ```

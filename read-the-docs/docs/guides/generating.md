@@ -35,6 +35,8 @@ Every option is optional. Here's what each one does:
 | `bars`       | Number of bars. Defaults to `100`. |
 | `interval`   | Bar size. See [Intervals](intervals.md). |
 | `startDate`  | Timestamp of the first bar. Date object, ms epoch, or ISO string. |
+| `endDate`    | Anchor the **last** bar at this timestamp instead — the start is computed backward. Can't be combined with `startDate`. |
+| `pricePrecision` | Integer 0–8: fixed decimals for every price field. Omit for automatic rounding. |
 | `seed`       | Anything (string or number). Same seed → same output. |
 | `weekends`   | `true` to include Saturday/Sunday bars. Stocks skip them by default. |
 | `extendedHours` | `true` to add pre-market and after-hours bars (intraday only). See below. |
@@ -90,6 +92,31 @@ const btc  = generateStock({ kind: 'crypto', symbol: 'BTC',  bars: 365 });
 You can still override anything individually — `kind` only affects values you didn't set.
 
 Crypto series also ignore the market schedule entirely: `weekends` and `extendedHours` have no effect, bars run 24/7 including Saturdays and Sundays, and no `session` field is added.
+
+## Anchor the series with `endDate`
+
+By default the first bar sits at `startDate` (or `now - bars*interval`). Pass `endDate` instead to pin the **last** bar — the start is computed backward:
+
+```js
+// 30 daily bars ending on 2024-12-31
+const s = generateStock({ bars: 30, interval: '1d', endDate: '2024-12-31' });
+s.bars.at(-1).date; // → '2024-12-31T00:00:00.000Z'
+```
+
+- `endDate` and `startDate` are mutually exclusive — passing both throws.
+- Uniform grids (crypto, net worth) land **exactly** on `endDate`.
+- Stocks snap to the nearest **earlier tradable slot**: a Sunday `endDate` ends the series on Friday, weekly bars end on the prior Monday, intraday bars end on the last session-grid point at or before the timestamp.
+
+## Control decimals with `pricePrecision`
+
+Prices are rounded automatically by magnitude (2dp for normal prices, more for sub-dollar). Set `pricePrecision` to pin every OHLC field — and `worth` — to a fixed number of decimals (0–8):
+
+```js
+const s = generateStock({ bars: 20, pricePrecision: 2 });
+s.bars[0].close; // e.g. 61.37 — always exactly ≤2 decimals
+```
+
+The value is stored on the returned object as `stock.pricePrecision` and survives `toJSON`/`fromJSON`; charts reuse it for their y-axis labels unless you pass a chart-level `pricePrecision` override.
 
 ## Markets
 

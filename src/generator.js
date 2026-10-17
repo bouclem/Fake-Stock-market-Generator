@@ -12,7 +12,7 @@
 
 import { createRng } from './prng.js';
 import { makeSymbol } from './symbols.js';
-import { parseIntervalSpec, stepTime, snapToTradingTime, nextSessionBarTime, anchorToMonday, sessionAt } from './interval.js';
+import { parseIntervalSpec, stepTime, snapToTradingTime, nextSessionBarTime, prevSessionBarTime, anchorToMonday, anchorToMondayFloor, snapBackwardToTrading, sessionAt } from './interval.js';
 import { parseNumeric } from './numeric.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,6 +39,7 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number} startPrice
  * @property {number} interval - milliseconds between bars
  * @property {number|null} sharesOutstanding - Total shares outstanding (null when not set). Used to compute bar.worth.
+ * @property {number|null} pricePrecision - Decimal places used for prices (null = automatic)
  * @property {Bar[]} bars
  */
 
@@ -53,6 +54,11 @@ const YEAR_MS = 365 * DAY_MS;
  * @property {number} [bars]                  - Number of bars to generate (default: 100)
  * @property {number|string} [interval]       - Bar size; ms or "1min"/"1h"/"1d"/"1w"/"1mo"/"1m"/"1y" ("m" = month, "min" = minute)
  * @property {Date|number|string} [startDate] - First bar timestamp (default: now - bars*interval)
+ * @property {Date|number|string} [endDate]   - Alternative anchor: the LAST bar's
+ *   timestamp. Mutually exclusive with `startDate`. Lands exactly for uniform
+ *   grids; stocks snap to the nearest earlier tradable slot.
+ * @property {number} [pricePrecision]        - Fixed decimal places for all price
+ *   fields (0–8). Default: auto (2dp normally, more for sub-dollar prices).
  * @property {number|string} [seed]           - Reproducible output
  * @property {'stock'|'crypto'} [kind]         - Sets defaults for price range, drift and volatility (default: 'stock')
  * @property {number[]} [prices]              - Custom close prices, one per bar.
@@ -150,6 +156,19 @@ function validateOptions(opts) {
       throw new Error(`"startDate" is not a valid date: ${opts.startDate}`);
     }
   }
+  if (opts.endDate !== undefined) {
+    const t = new Date(opts.endDate).getTime();
+    if (!Number.isFinite(t)) {
+      throw new Error(`"endDate" is not a valid date: ${opts.endDate}`);
+    }
+    if (opts.startDate !== undefined) {
+      throw new Error('Pass either "startDate" or "endDate", not both');
+    }
+  }
+  if (opts.pricePrecision !== undefined &&
+      (!Number.isInteger(opts.pricePrecision) || opts.pricePrecision < 0 || opts.pricePrecision > 8)) {
+    throw new Error(`"pricePrecision" must be an integer between 0 and 8, got ${opts.pricePrecision}`);
+  }
   if (opts.kind !== undefined && opts.kind !== 'stock' && opts.kind !== 'crypto') {
     throw new Error(`"kind" must be "stock" or "crypto", got ${opts.kind}`);
   }
@@ -230,6 +249,16 @@ export function generateStock(options = {}) {
   const intervalSpec = parseIntervalSpec(opts.interval);
   const intervalMs = intervalSpec.ms;
 
+  // Price rounding: fixed decimals when `pricePrecision` is set, else the
+  // automatic magnitude-based rounding (2dp, more for sub-dollar prices).
+  const roundP = opts.pricePrecision == null
+    ? round2
+    : (n) => {
+        if (!Number.isFinite(n)) return n;
+        const f = 10 ** opts.pricePrecision;
+        return Math.round(n * f) / f;
+      };
+
   // Determine bar count from the inputs we have
   let barCount;
   if (opts.ohlc) barCount = opts.ohlc.length;
@@ -260,10 +289,50 @@ export function generateStock(options = {}) {
     intraday
   };
 
+  // `endDate` anchors the LAST bar instead of the first — walk the schedule
+  // backward so the final bar lands exactly on (or just before) it.
+  let endTimes = null;
+  if (opts.endDate !== undefined) {
+    const endMs = new Date(opts.endDate).getTime();
+    endTimes = new Array(barCount);
+    if (!scheduled) {
+      // Uniform grid (crypto): the last bar lands exactly on endDate.
+      for (let i = 0; i < barCount; i++) {
+        endTimes[i] = stepTime(endMs, intervalSpec, i - (barCount - 1));
+      }
+    } else {
+      // Stocks: snap the end back to a tradable slot, then step backward.
+      endTimes[barCount - 1] = intraday
+        ? prevSessionBarTime(endMs + 1, intervalMs, schedOpts)
+        : intervalSpec.unit === 'w'
+          ? anchorToMondayFloor(endMs)
+          : snapBackwardToTrading(endMs, schedOpts);
+      for (let i = barCount - 2; i >= 0; i--) {
+        const t = endTimes[i + 1];
+        let p;
+        if (intraday) {
+          p = prevSessionBarTime(t, intervalMs, schedOpts);
+        } else if (intervalSpec.unit === 'w') {
+          p = anchorToMondayFloor(t);
+          if (p >= t) p -= 7 * DAY_MS;
+        } else {
+          p = snapBackwardToTrading(
+            intervalSpec.calendar ? stepTime(t, intervalSpec, -1) : t - intervalMs,
+            schedOpts
+          );
+          while (p >= t) p = snapBackwardToTrading(p - DAY_MS, schedOpts);
+        }
+        endTimes[i] = p;
+      }
+    }
+  }
+
   // Sequential cursor — each bar steps from the previous *emitted* time, so
   // skipped weekends/overnights don't leave holes in the series.
   let prevTime = null;
-  const timeAt = (i) => {
+  const timeAt = endTimes
+    ? (i) => endTimes[i]
+    : (i) => {
     if (!scheduled) return stepTime(startTime, intervalSpec, i);
     if (intraday) {
       // Session-anchored grid: every session re-anchors at its open, so an
@@ -295,10 +364,10 @@ export function generateStock(options = {}) {
       bars[i] = {
         time,
         date: typeof src.date === 'string' ? src.date : new Date(time).toISOString(),
-        open: round2(src.open),
-        high: round2(src.high),
-        low: round2(src.low),
-        close: round2(src.close),
+        open: roundP(src.open),
+        high: roundP(src.high),
+        low: roundP(src.low),
+        close: roundP(src.close),
         volume: Number.isFinite(src.volume) ? src.volume : Math.max(1, Math.round(500_000 + rng.next() * 1_500_000))
       };
       if (typeof src.session === 'string') bars[i].session = src.session;
@@ -316,10 +385,10 @@ export function generateStock(options = {}) {
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        open: round2(synth.open),
-        high: round2(synth.high),
-        low: round2(synth.low),
-        close: round2(synth.close),
+        open: roundP(synth.open),
+        high: roundP(synth.high),
+        low: roundP(synth.low),
+        close: roundP(synth.close),
         volume: synth.volume
       };
       prevClose = close;
@@ -367,10 +436,10 @@ export function generateStock(options = {}) {
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        open: round2(open),
-        high: round2(high),
-        low: round2(low),
-        close: round2(close),
+        open: roundP(open),
+        high: roundP(high),
+        low: roundP(low),
+        close: roundP(close),
         volume
       };
       price = close;
@@ -390,7 +459,7 @@ export function generateStock(options = {}) {
   const sharesOutstanding = parseNumeric(opts.sharesOutstanding) ?? null;
   if (sharesOutstanding !== null) {
     for (let i = 0; i < bars.length; i++) {
-      bars[i].worth = round2(bars[i].close * sharesOutstanding);
+      bars[i].worth = roundP(bars[i].close * sharesOutstanding);
     }
   }
 
@@ -399,9 +468,10 @@ export function generateStock(options = {}) {
     name,
     sector,
     kind: opts.kind,
-    startPrice: round2(opts.startPrice ?? firstOpen),
+    startPrice: roundP(opts.startPrice ?? firstOpen),
     interval: intervalMs,
     sharesOutstanding,
+    pricePrecision: opts.pricePrecision ?? null,
     bars
   };
 }
@@ -449,6 +519,7 @@ function rebuildNetWorth(obj) {
     name: obj.name ?? undefined,
     startValue: obj.startValue,
     interval: obj.interval,
+    pricePrecision: obj.pricePrecision ?? undefined,
     values: obj.bars.map((b) => b.value),
     startDate: obj.bars[0]?.time
   });
@@ -466,6 +537,7 @@ function rebuildOne(obj) {
     startPrice: obj.startPrice,
     interval: obj.interval,
     sharesOutstanding: obj.sharesOutstanding ?? undefined,
+    pricePrecision: obj.pricePrecision ?? undefined,
     ohlc: obj.bars
   });
   if (Array.isArray(obj.splits)) stock.splits = obj.splits;
@@ -485,6 +557,7 @@ function rebuildOne(obj) {
  * @property {string|null} name
  * @property {number} startValue
  * @property {number} interval - milliseconds between bars
+ * @property {number|null} pricePrecision - Decimal places used for values (null = automatic)
  * @property {NetWorthBar[]} bars
  */
 
@@ -497,6 +570,9 @@ function rebuildOne(obj) {
  * @property {number} [bars]                   - Number of data points (default: 100)
  * @property {number|string} [interval]        - Bar size; ms or "1d"/"1w"/"1mo"/"1m"/"1y" etc. ("m" = month, "min" = minute)
  * @property {Date|number|string} [startDate]  - First bar timestamp
+ * @property {Date|number|string} [endDate]    - Alternative anchor: the LAST bar's
+ *   timestamp (mutually exclusive with `startDate`)
+ * @property {number} [pricePrecision]         - Fixed decimal places for values (0–8; default: auto)
  * @property {number|string} [seed]            - Reproducible output
  * @property {(number|string)[]} [values]      - Custom net worth values, one per bar;
  *   strings like "1_500_000" or "1.5M" are accepted
@@ -536,6 +612,19 @@ export function generateNetWorth(options = {}) {
       throw new Error(`"startDate" is not a valid date: ${opts.startDate}`);
     }
   }
+  if (opts.endDate !== undefined) {
+    const t = new Date(opts.endDate).getTime();
+    if (!Number.isFinite(t)) {
+      throw new Error(`"endDate" is not a valid date: ${opts.endDate}`);
+    }
+    if (opts.startDate !== undefined) {
+      throw new Error('Pass either "startDate" or "endDate", not both');
+    }
+  }
+  if (opts.pricePrecision !== undefined &&
+      (!Number.isInteger(opts.pricePrecision) || opts.pricePrecision < 0 || opts.pricePrecision > 8)) {
+    throw new Error(`"pricePrecision" must be an integer between 0 and 8, got ${opts.pricePrecision}`);
+  }
   if (opts.values !== undefined) {
     if (!Array.isArray(opts.values) || opts.values.length < 1) {
       throw new Error(`"values" must be a non-empty array of numbers`);
@@ -560,10 +649,23 @@ export function generateNetWorth(options = {}) {
 
   const name = opts.name ?? null;
 
+  // Value rounding: fixed decimals when `pricePrecision` is set, else auto.
+  const roundP = opts.pricePrecision == null
+    ? round2
+    : (n) => {
+        if (!Number.isFinite(n)) return n;
+        const f = 10 ** opts.pricePrecision;
+        return Math.round(n * f) / f;
+      };
+
+  // `endDate` anchors the LAST bar; net worth grids are uniform so the
+  // start is just endDate stepped back barCount-1 intervals.
   const startTime =
-    opts.startDate !== undefined
-      ? new Date(opts.startDate).getTime()
-      : stepTime(Date.now(), intervalSpec, -barCount);
+    opts.endDate !== undefined
+      ? stepTime(new Date(opts.endDate).getTime(), intervalSpec, -(barCount - 1))
+      : opts.startDate !== undefined
+        ? new Date(opts.startDate).getTime()
+        : stepTime(Date.now(), intervalSpec, -barCount);
 
   // Start value: log-uniform between 10k and 5M if not given
   let startValue;
@@ -601,7 +703,7 @@ export function generateNetWorth(options = {}) {
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        value: round2(parseNumeric(opts.values[i])),
+        value: roundP(parseNumeric(opts.values[i])),
         volume: opts.volumes ? Math.round(opts.volumes[i]) : Math.round(100 + rng.next() * 900)
       };
     }
@@ -618,7 +720,7 @@ export function generateNetWorth(options = {}) {
       bars[i] = {
         time,
         date: new Date(time).toISOString(),
-        value: round2(value),
+        value: roundP(value),
         volume
       };
       prevValue = value;
@@ -628,8 +730,9 @@ export function generateNetWorth(options = {}) {
 
   return {
     name,
-    startValue: round2(startValue),
+    startValue: roundP(startValue),
     interval: intervalMs,
+    pricePrecision: opts.pricePrecision ?? null,
     bars,
     _type: 'networth'
   };

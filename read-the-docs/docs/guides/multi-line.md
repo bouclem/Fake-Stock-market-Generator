@@ -83,7 +83,7 @@ writeFileSync('starts.svg', renderMultiLineChart([low, mid, tiny], {
 
 ## Area fills
 
-Add translucent gradient fills under each line with `area: true`:
+Add translucent fills under each line with `area: true` — the same flat 18%-opacity look as the single-stock area chart:
 
 ```js
 renderMultiLineChart(market, {
@@ -108,6 +108,19 @@ const stocks = [
 ];
 ```
 
+## Market cap — `valueMode: 'worth'`
+
+Like the single-stock charts, multi-line accepts `valueMode: 'worth'` to compare **market cap** (`bar.worth`) instead of share price. Every stock in the array needs `sharesOutstanding` — otherwise the renderer throws:
+
+```js
+const market = generateMarket({
+  count: 4, bars: 120, sharesOutstanding: '10M'
+});
+renderMultiLineChart(market, { mode: 'price', valueMode: 'worth' });
+```
+
+Works with both `mode: 'price'` (raw market cap) and `mode: 'normalized'` (relative market-cap performance).
+
 ## Hide the legend
 
 ```js
@@ -123,8 +136,9 @@ In addition to all the standard [chart options](../api-reference.md#chart-option
 | Option   | Type                          | Default        | Notes |
 |----------|-------------------------------|----------------|-------|
 | `mode`   | `'normalized' \| 'price'`     | `'normalized'` | rebase to 100 at start, or keep raw values |
-| `area`   | `boolean`                     | `false`        | translucent gradient fills under each line |
+| `area`   | `boolean`                     | `false`        | translucent fills under each line |
 | `legend` | `boolean`                     | `true`         | symbol legend in top-left of plot area |
+| `valueMode` | `'price' \| 'worth'`       | `'price'`      | `'worth'` plots market cap — every stock needs `sharesOutstanding` |
 
 ## See also
 

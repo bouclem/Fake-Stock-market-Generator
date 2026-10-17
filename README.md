@@ -40,7 +40,7 @@ const { generateStock, renderLineChart } = require('stock-market-gen');
 - supply your **own** close prices (`prices`) or full OHLC bars (`ohlc`)
 - save to JSON and reload it later — output is plain data (net worth + worth fields included)
 - pass a `stocks` array to define each company yourself
-- compare several companies on a single chart with `renderMultiLineChart` — including translucent gradient fills under each line
+- compare several companies on a single chart with `renderMultiLineChart` — including translucent fills under each line
 - sub-cent precision: prices below `$1` keep 4 decimals (below `$0.01` keeps 6), so crypto-style series stay readable
 - reproducible output via a seed
 
@@ -56,7 +56,7 @@ All renderers return a complete SVG string. Save it to a file, drop it into HTML
 
 Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart. Load events from a separate `.json` file with `loadEvents()`.
 
-All single-stock renderers support `valueMode: 'worth'` to plot total company valuation instead of per-share price.
+All line-family renderers (line, area, multi-line, chart-with-volume) support `valueMode: 'worth'` to plot total company valuation instead of per-share price — and `trend: true` on single-series charts colors each segment **green** when the value rises and **red** when it falls.
 
 When a stock was generated with `extendedHours: true`, pre-market and after-hours bars render **Yahoo Finance–style**: the regular-session line stays solid and the extended-hours segments are drawn as grey semi-transparent dots (grey candles/bars on OHLC and volume charts).
 
@@ -169,6 +169,8 @@ const restored = fromJSON(readFileSync('stock.json', 'utf8'));
 | `bars`        | `number`                   | `100`            | positive integer |
 | `interval`    | `number \| string`         | `"1d"`           | ms or `"1min"`/`"1h"`/`"1d"`/`"1w"`/`"1mo"`/`"1m"`/`"1y"` (calendar-aware for `1mo`/`1m`/`1y`; since v2 `m` = month, `min` = minute) |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
+| `endDate`     | `Date \| number \| string` | none             | anchor the **last** bar instead — `startDate` is computed backward (exclusive with `startDate`; stocks snap to the nearest earlier tradable slot) |
+| `pricePrecision` | `number`              | auto             | fixed decimals (0–8) for all price fields; default keeps automatic magnitude-based rounding |
 | `seed`        | `number \| string`         | random           | reproducible output |
 | `prices`      | `number[]`                 | none             | use your own close prices; `bars` becomes the array length |
 | `ohlc`        | `Bar[]`                    | none             | use your own full OHLC bars verbatim |
@@ -246,7 +248,9 @@ Generate a net worth time series for a person or entity. Uses GBM with wealth-ac
 | `volatility`  | `number`                   | random 5–25%/yr      | annualised |
 | `bars`        | `number`                   | `100`                | data points |
 | `interval`    | `number \| string`         | `"1mo"`              | default monthly |
-| `startDate`   | `Date \| number \| string` | `now - bars*interval`| |
+| `startDate`   | `Date \| number \| string` | `now - bars*interval`| first point timestamp |
+| `endDate`     | `Date \| number \| string` | none                 | anchor the **last** point instead (lands exactly; exclusive with `startDate`) |
+| `pricePrecision` | `number`              | auto                 | fixed decimals (0–8) for values |
 | `seed`        | `number \| string`         | random               | reproducible |
 | `values`      | `number[]`                 | none                 | custom net worth values |
 
@@ -529,6 +533,9 @@ Chart options:
   yTicks: 5,               // number of price labels on the Y axis (default 5)
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
   colors: { line: '#2563eb' }, // override any single color
+  valueMode: 'worth',      // plot market cap (bar.worth) instead of price — needs sharesOutstanding
+  trend: true,             // single-series charts: green segments rising, red falling
+  pricePrecision: 2,       // fixed decimals on y-axis labels (default: stock's own, else auto)
   events: [                // annotate specific dates
     { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
     { date: '2024-07-01', label: 'Split' }
@@ -574,7 +581,7 @@ const market = generateMarket({
 writeFileSync('compare.svg', renderMultiLineChart(market, {
   title: 'My Portfolio — 2024',
   mode: 'normalized', // or 'price' for raw values
-  area: true,         // add translucent gradient fills under each line
+  area: true,         // add translucent fills under each line
   theme: 'dark'
 }));
 ```
@@ -584,8 +591,9 @@ Multi-line specific options on top of the standard chart options:
 | Option       | Type                          | Default        | Notes |
 |--------------|-------------------------------|----------------|-------|
 | `mode`       | `'normalized' \| 'price'`     | `'normalized'` | `'normalized'` rebases each series to 100 at its first bar (great for comparing relative performance regardless of price level). `'price'` keeps actual values. |
-| `area`       | `boolean`                     | `false`        | also draw a translucent gradient fill under each line |
+| `area`       | `boolean`                     | `false`        | also draw a translucent fill under each line (same look as the single-stock area chart) |
 | `legend`     | `boolean`                     | `true`         | show the symbol legend in the top-left of the plot |
+| `valueMode`  | `'price' \| 'worth'`          | `'price'`      | `'worth'` plots `bar.worth` (market cap) — every stock needs `sharesOutstanding` |
 
 Per-stock `color` (hex string) is honored if set on the `Stock` object; otherwise a built-in palette is used.
 

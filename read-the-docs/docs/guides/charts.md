@@ -108,6 +108,38 @@ renderLineChart(extended, { colors: { ext: '#a1a1aa' } });
 
 Also note: line and area charts space bars by **index**, so skipped weekends and overnight gaps compress away — a Friday→Monday gap never leaves empty space on the axis.
 
+## Price vs market cap — `valueMode`
+
+Every line-family chart can plot **total company valuation** (`bar.worth = close × sharesOutstanding`) instead of per-share price:
+
+```js
+const stock = generateStock({ bars: 120, sharesOutstanding: '50M' });
+renderLineChart(stock, { valueMode: 'worth' });       // y-axis = market cap
+renderMultiLineChart([a, b], { valueMode: 'worth' }); // same for multi-line
+renderChartWithVolume(stock, 'line', { valueMode: 'worth' });
+```
+
+`valueMode: 'worth'` requires `sharesOutstanding` on the stock — without it the renderer throws a clear error. On `bar`/`candlestick` types it also throws, since a single value can't be drawn as OHLC.
+
+## Trend-colored line — `trend: true`
+
+On single-series charts (`renderLineChart`, `renderAreaChart`, `renderChartWithVolume`, `renderNetWorthChart`) each segment is drawn **green** when the value rises between two bars and **red** when it falls:
+
+```js
+renderLineChart(stock, { trend: true });
+renderLineChart(stock, { trend: true, valueMode: 'worth' }); // works on market cap too
+```
+
+Extended-hours dots stay grey — only regular-session segments are trend-colored.
+
+## Axis decimals — `pricePrecision`
+
+Y-axis labels use automatic, magnitude-based formatting by default (and adopt the data's own `pricePrecision` when the series was generated with one). Pass a number to force a fixed number of decimals:
+
+```js
+renderLineChart(stock, { pricePrecision: 0 }); // integer labels
+```
+
 ## Sizing and padding
 
 Defaults are 1200 × 600 with generous padding so price labels and date strings fit cleanly.

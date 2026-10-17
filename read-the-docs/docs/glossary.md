@@ -78,6 +78,18 @@ Trading outside the regular 09:30–16:00 window. Generated stock bars include t
 
 Saturday and Sunday. Generated stock bars skip them by default (charts compress the gap); pass `weekends: true` to include them. Crypto is unaffected — it trades 24/7.
 
+## endDate
+
+Generation option that anchors the **last** bar at a given timestamp instead of the first — `startDate` is computed backward from it. The two are mutually exclusive. Lands exactly on uniform grids (crypto, net worth); stocks snap to the nearest earlier tradable slot.
+
+## pricePrecision
+
+Generation option (integer 0–8) that fixes the number of decimals on every price/value field. When omitted, the package rounds automatically by magnitude. The value is stored on the generated object and reused by chart y-axis labels.
+
+## Trend coloring
+
+Chart option (`trend: true`) for single-series line charts: every segment between two bars is drawn green when the value rose and red when it fell. Works for both `price` and `worth` modes; extended-hours dots stay grey.
+
 ## Market
 
 In this package, "market" just means an array of stocks generated together with shared options and a single seed. There's no order book, no trading mechanics — just a bundle of price series you can compare or display side by side.

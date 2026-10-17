@@ -249,3 +249,56 @@ export function anchorToMonday(ms) {
   const day = new Date(ms).getUTCDay();
   return ms + ((8 - day) % 7) * DAY_LEN_MS;
 }
+
+/**
+ * Latest Monday at-or-before `ms`, keeping the time-of-day.
+ * Used when a series is anchored by `endDate` rather than `startDate`.
+ * @param {number} ms
+ * @returns {number}
+ */
+export function anchorToMondayFloor(ms) {
+  const day = new Date(ms).getUTCDay();
+  return ms - ((day + 6) % 7) * DAY_LEN_MS;
+}
+
+/**
+ * Largest session-grid bar time strictly before `t`.
+ * Mirror of nextSessionBarTime — used to anchor an `endDate` series so its
+ * last bar lands exactly on a tradable grid slot.
+ * @param {number} t - upper bound (exclusive)
+ * @param {number} stepMs - bar step in milliseconds (< 1 day)
+ * @param {{weekends?: boolean, extendedHours?: boolean}} [opts]
+ * @returns {number} last grid timestamp < t
+ */
+export function prevSessionBarTime(t, stepMs, { weekends = false, extendedHours = false } = {}) {
+  const sessions = extendedHours ? EXT_SESSIONS : [REG_SESSION];
+  let dayStart = t - msOfDay(t);
+  for (let d = 0; d < 10; d++) {
+    if (weekends || !isWeekendUTC(dayStart)) {
+      for (let s = sessions.length - 1; s >= 0; s--) {
+        const [open, close] = sessions[s];
+        const openT = dayStart + open * MINUTE_MS;
+        const closeT = dayStart + close * MINUTE_MS;
+        if (t <= openT) continue;                        // session hasn't started yet
+        const maxK = Math.floor((closeT - 1 - openT) / stepMs);
+        const k = Math.min(Math.floor((t - 1 - openT) / stepMs), maxK);
+        if (k >= 0) return openT + k * stepMs;
+      }
+    }
+    dayStart -= DAY_LEN_MS;                              // try the previous day
+  }
+  return t;
+}
+
+/**
+ * Snap a timestamp *backward* to the previous weekday, keeping time-of-day.
+ * Weekend-rule only — used by `endDate` for daily+ bars.
+ * @param {number} ms
+ * @param {{weekends?: boolean}} [opts]
+ * @returns {number}
+ */
+export function snapBackwardToTrading(ms, { weekends = false } = {}) {
+  let t = ms;
+  if (!weekends) while (isWeekendUTC(t)) t -= DAY_LEN_MS;
+  return t;
+}

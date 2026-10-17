@@ -65,6 +65,11 @@ const CHART_DEFAULTS = {
  * @property {ChartEvent[]} [events] - Annotate specific dates with a full-height marker and top label
  * @property {'price'|'worth'} [valueMode] - What to plot: 'price' (default) uses OHLC close/open/high/low;
  *   'worth' uses bar.worth (close × sharesOutstanding). Requires sharesOutstanding on the stock.
+ *   Works on line-family charts (line, area, multi-line, volume) — OHLC types reject it.
+ * @property {boolean} [trend] - Color each line segment green when the value rises
+ *   and red when it falls (single-series line-family charts).
+ * @property {number} [pricePrecision] - Fixed decimals for y-axis labels.
+ *   Default: the stock's own `pricePrecision` if set, else automatic.
  * @property {Partial<typeof THEMES.light>} [colors] - Override individual colors
  */
 
@@ -178,23 +183,40 @@ function makeTimeX(bars, plot) {
  * @param {(string|undefined)[]} sessions
  * @param {string} color
  * @param {string} extColor
+ * @param {{up:string,down:string}|null} [trend] - when set, each regular-session
+ *   segment is colored green (value rose) or red (value fell) instead of `color`
  */
-function buildSeriesLine(pixels, sessions, color, extColor) {
+function buildSeriesLine(pixels, sessions, color, extColor, trend) {
   const pointStr = (p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
   const all = pixels.map(pointStr).join(' ');
+  // One contiguous regular-session run → polyline, or per-segment trend lines.
+  const runSvg = (run) => {
+    if (run.length === 0) return '';
+    if (run.length === 1) {
+      return `<circle cx="${run[0].x.toFixed(2)}" cy="${run[0].y.toFixed(2)}" r="2" fill="${color}"/>`;
+    }
+    if (!trend) {
+      return `<polyline points="${run.map(pointStr).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    // Screen y is inverted: b.y < a.y means the value went up.
+    let s = '';
+    for (let k = 0; k < run.length - 1; k++) {
+      const a = run[k];
+      const b = run[k + 1];
+      const c = b.y < a.y ? trend.up : b.y > a.y ? trend.down : color;
+      s += `<line x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}" stroke="${c}" stroke-width="2" stroke-linecap="round"/>`;
+    }
+    return s;
+  };
   if (!sessions.some((s) => s === 'pre' || s === 'post')) {
-    return `<polyline points="${all}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    return runSvg(pixels);
   }
   const parts = [
     `<polyline points="${all}" fill="none" stroke="${extColor}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="1 5" opacity="0.6"/>`
   ];
   let run = [];
   const flush = () => {
-    if (run.length === 1) {
-      parts.push(`<circle cx="${run[0].x.toFixed(2)}" cy="${run[0].y.toFixed(2)}" r="2" fill="${color}"/>`);
-    } else if (run.length > 1) {
-      parts.push(`<polyline points="${run.map(pointStr).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
-    }
+    parts.push(runSvg(run));
     run = [];
   };
   const dots = [];
@@ -220,14 +242,6 @@ function escapeXml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-}
-
-function hashString(s) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) {
-    h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  }
-  return h >>> 0;
 }
 
 function plotArea(o) {
@@ -259,7 +273,9 @@ function priceRange(bars, useOHLC) {
   return { min: Math.max(0, min - pad), max: max + pad };
 }
 
-function formatPrice(n) {
+function formatPrice(n, precision) {
+  // Explicit precision (chart option or stock.pricePrecision) wins over auto.
+  if (precision != null) return n.toFixed(precision);
   const abs = Math.abs(n);
   // Use human-readable format (K/M/B/T) for large numbers on axes
   if (abs >= 5000) return formatHumanNumber(n, 1);
@@ -308,7 +324,7 @@ function buildAxes(o, plot, range, bars, xOfBar) {
     }
     if (o.showAxes) {
       parts.push(
-        `<text x="${plot.x - 8}" y="${y + 4}" text-anchor="end" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatPrice(value)}</text>`
+        `<text x="${plot.x - 8}" y="${y + 4}" text-anchor="end" font-family="system-ui, sans-serif" font-size="13" fill="${o.colors.text}">${formatPrice(value, o.pricePrecision)}</text>`
       );
     }
   }
@@ -418,11 +434,13 @@ function yAt(plot, value, range) {
 export function renderLineChart(stock, options) {
   assertBars(stock, 'renderLineChart');
   const o = resolve(options);
+  if (o.pricePrecision == null && stock.pricePrecision != null) o.pricePrecision = stock.pricePrecision;
   const plot = plotArea(o);
   const worthMode = o.valueMode === 'worth';
   if (worthMode) _assertWorth(stock);
   const getValue = worthMode ? (b) => b.worth : (b) => b.close;
   const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, false);
+  const trend = o.trend ? { up: o.colors.up, down: o.colors.down } : null;
 
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
@@ -440,7 +458,7 @@ export function renderLineChart(stock, options) {
   const body =
     buildAxes(o, plot, range, stock.bars, (b) => xForTime(b.time)) +
     buildEvents(evs, plot, o) +
-    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext) +
+    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
@@ -455,11 +473,13 @@ export function renderLineChart(stock, options) {
 export function renderAreaChart(stock, options) {
   assertBars(stock, 'renderAreaChart');
   const o = resolve(options);
+  if (o.pricePrecision == null && stock.pricePrecision != null) o.pricePrecision = stock.pricePrecision;
   const plot = plotArea(o);
   const worthMode = o.valueMode === 'worth';
   if (worthMode) _assertWorth(stock);
   const getValue = worthMode ? (b) => b.worth : (b) => b.close;
   const range = worthMode ? worthRange(stock.bars) : priceRange(stock.bars, false);
+  const trend = o.trend ? { up: o.colors.up, down: o.colors.down } : null;
 
   const n = stock.bars.length;
   const tMin = stock.bars[0].time;
@@ -481,7 +501,7 @@ export function renderAreaChart(stock, options) {
     buildAxes(o, plot, range, stock.bars, (b) => xForTime(b.time)) +
     buildEvents(evs, plot, o) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
-    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext) +
+    buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
   return svgWrap(o, body);
@@ -496,6 +516,7 @@ export function renderAreaChart(stock, options) {
 export function renderBarChart(stock, options) {
   assertBars(stock, 'renderBarChart');
   const o = resolve(options);
+  if (o.pricePrecision == null && stock.pricePrecision != null) o.pricePrecision = stock.pricePrecision;
   const plot = plotArea(o);
   if (o.valueMode === 'worth') {
     throw new Error(
@@ -556,6 +577,7 @@ export function renderBarChart(stock, options) {
 export function renderCandlestickChart(stock, options) {
   assertBars(stock, 'renderCandlestickChart');
   const o = resolve(options);
+  if (o.pricePrecision == null && stock.pricePrecision != null) o.pricePrecision = stock.pricePrecision;
   const plot = plotArea(o);
   if (o.valueMode === 'worth') {
     throw new Error(
@@ -621,11 +643,13 @@ export function renderCandlestickChart(stock, options) {
  *     - `'price'`      — raw closing prices (good when scales are similar)
  *     - `'normalized'` — each series rebased to 100 at its first bar (default;
  *                        works regardless of price differences)
- *   When `area: true`, each series is also drawn as a translucent gradient
- *   filled down to the chart bottom. The fill is split into per-segment
- *   trapezoids and trapezoids are painted from tallest to shortest *locally*,
- *   so a series that is small in one region but tall in another sits on top
- *   of its neighbours only where it actually is smaller.
+ *   `valueMode: 'worth'` plots `bar.worth` (market cap) instead of `close` —
+ *   requires `sharesOutstanding` on every stock.
+ *   When `area: true`, each series is also drawn as a translucent fill down to
+ *   the chart bottom (same look as the single-stock area chart). The fill is
+ *   split into per-segment trapezoids painted tallest-first *locally*, so a
+ *   series that is small in one region but tall in another sits on top only
+ *   where it actually is smaller.
  *   Each stock can also carry a `color` field; otherwise a built-in palette is used.
  * @returns {string} SVG document
  */
@@ -634,11 +658,15 @@ export function renderMultiLineChart(stocks, options = {}) {
     throw new Error('renderMultiLineChart: stocks must be a non-empty array');
   }
   const o = resolve(options);
+  if (o.pricePrecision == null && stocks[0] && stocks[0].pricePrecision != null) {
+    o.pricePrecision = stocks[0].pricePrecision;
+  }
   const plot = plotArea(o);
   const mode = options.mode || 'normalized';
   if (mode !== 'price' && mode !== 'normalized') {
     throw new Error(`renderMultiLineChart: unknown mode "${mode}". Use "price" or "normalized".`);
   }
+  const worthMode = o.valueMode === 'worth';
   const showLegend = options.legend !== false;
   const showArea = options.area === true;
   const palette = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0ea5e9', '#ec4899', '#14b8a6'];
@@ -648,7 +676,8 @@ export function renderMultiLineChart(stocks, options = {}) {
     if (!s || !Array.isArray(s.bars) || s.bars.length === 0) {
       throw new Error(`renderMultiLineChart: stock at index ${i} has no bars`);
     }
-    const closes = s.bars.map((b) => b.close);
+    if (worthMode) _assertWorth(s);
+    const closes = s.bars.map((b) => (worthMode ? b.worth : b.close));
     const base = closes[0] || 1;
     const values = mode === 'normalized' ? closes.map((c) => (c / base) * 100) : closes;
     const points = s.bars.map((b, j) => ({ time: b.time, value: values[j] }));
@@ -701,20 +730,8 @@ export function renderMultiLineChart(stocks, options = {}) {
   // of one global rank deciding for the whole chart.
   let areas = '';
   if (showArea) {
-    // One gradient <defs> per series, reused across segments.
-    const defs = series
-      .map((s, idx) => {
-        const id = `mlg-${idx}-${Math.abs(hashString(s.stock.symbol + s.color)).toString(36)}`;
-        s.gradientId = id;
-        return (
-          `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">` +
-          `<stop offset="0%" stop-color="${s.color}" stop-opacity="0.45"/>` +
-          `<stop offset="100%" stop-color="${s.color}" stop-opacity="0"/>` +
-          `</linearGradient>`
-        );
-      })
-      .join('');
-
+    // Flat translucent fill per series — same look as the single-stock area
+    // chart (colors.area is ~18% opacity of the line color).
     const segments = [];
     for (const s of series) {
       for (let i = 0; i < s.pixels.length - 1; i++) {
@@ -724,7 +741,7 @@ export function renderMultiLineChart(stocks, options = {}) {
         // values (in data units, before y-flip). Used purely as a paint
         // order key.
         const height = Math.max(s.points[i].value, s.points[i + 1].value);
-        segments.push({ a, b, height, gradientId: s.gradientId });
+        segments.push({ a, b, height, color: s.color });
       }
     }
     // Tallest segments painted first → smaller segments end up on top in the
@@ -732,13 +749,11 @@ export function renderMultiLineChart(stocks, options = {}) {
     // order, which is fine.
     segments.sort((p, q) => q.height - p.height);
 
-    const polys = segments
-      .map(({ a, b, gradientId }) =>
-        `<polygon points="${a.x.toFixed(2)},${baseY.toFixed(2)} ${a.x.toFixed(2)},${a.y.toFixed(2)} ${b.x.toFixed(2)},${b.y.toFixed(2)} ${b.x.toFixed(2)},${baseY.toFixed(2)}" fill="url(#${gradientId})" stroke="none"/>`
+    areas = segments
+      .map(({ a, b, color }) =>
+        `<polygon points="${a.x.toFixed(2)},${baseY.toFixed(2)} ${a.x.toFixed(2)},${a.y.toFixed(2)} ${b.x.toFixed(2)},${b.y.toFixed(2)} ${b.x.toFixed(2)},${baseY.toFixed(2)}" fill="${color}" fill-opacity="0.18" stroke="none"/>`
       )
       .join('');
-
-    areas = `<defs>${defs}</defs>${polys}`;
   }
 
   const lines = series
@@ -867,7 +882,9 @@ export function renderNetWorthChart(netWorth, options) {
   }
 
   const o = resolve(options);
+  if (o.pricePrecision == null && netWorth.pricePrecision != null) o.pricePrecision = netWorth.pricePrecision;
   const plot = plotArea(o);
+  const trend = o.trend ? { up: o.colors.up, down: o.colors.down } : null;
 
   const values = netWorth.bars.map((b) => b.value);
   let vMin = Infinity;
@@ -890,9 +907,10 @@ export function renderNetWorthChart(netWorth, options) {
 
   const axisBars = n <= 1 ? netWorth.bars : makeAxisBars(tMin, tMax, Math.max(2, Math.floor(o.xTicks)));
 
-  const linePoints = netWorth.bars
-    .map((b, i) => `${xFor(b, i).toFixed(2)},${yAt(plot, b.value, range).toFixed(2)}`)
-    .join(' ');
+  const pixels = netWorth.bars
+    .map((b, i) => ({ x: xFor(b, i), y: yAt(plot, b.value, range) }));
+
+  const linePoints = pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
 
   const firstX = xFor(netWorth.bars[0], 0).toFixed(2);
   const lastX = xFor(netWorth.bars[n - 1], n - 1).toFixed(2);
@@ -905,7 +923,7 @@ export function renderNetWorthChart(netWorth, options) {
     buildAxes(o, plot, range, axisBars) +
     buildEvents(evs, plot, o) +
     `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
-    `<polyline points="${linePoints}" fill="none" stroke="${o.colors.line}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    buildSeriesLine(pixels, netWorth.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultLabel) });
 
   return svgWrap(o, body);
@@ -1133,6 +1151,16 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
   }
 
   const o = resolve(options);
+  if (o.pricePrecision == null && data.pricePrecision != null) o.pricePrecision = data.pricePrecision;
+  const worthMode = o.valueMode === 'worth';
+  if (worthMode) _assertWorth(data);
+  if (worthMode && (type === 'bar' || type === 'candlestick')) {
+    throw new Error(
+      `renderChartWithVolume: valueMode 'worth' is not supported for '${type}' — worth is a single ` +
+      `value per bar so there is nothing to draw as OHLC. Use 'line' or 'area'.`
+    );
+  }
+  const trend = o.trend ? { up: o.colors.up, down: o.colors.down } : null;
   const volumeHeightPct = Math.max(10, Math.min(40, options.volumeHeight || 25));
 
   // Split plot area: main chart on top, volume below
@@ -1150,9 +1178,9 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
   const xForTime = makeTimeX(data.bars, mainPlot);
   const xFor = (b) => xForTime(b.time);
 
-  const getValue = (b) => b.close ?? b.value;
+  const getValue = worthMode ? (b) => b.worth : (b) => b.close ?? b.value;
   const hasOHLC = data.bars[0].open != null;
-  const drawOHLC = hasOHLC && (type === 'bar' || type === 'candlestick');
+  const drawOHLC = hasOHLC && (type === 'bar' || type === 'candlestick') && !worthMode;
 
   // Value range for the main chart — OHLC charts span high..low, others the value
   let vMin = Infinity, vMax = -Infinity;
@@ -1217,7 +1245,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
       x: xFor(b),
       y: yAt(mainPlot, getValue(b), range)
     }));
-    mainBody = buildSeriesLine(pixels, data.bars.map((b) => b.session), o.colors.line, o.colors.ext);
+    mainBody = buildSeriesLine(pixels, data.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend);
     if (type === 'area') {
       const firstX = pixels[0].x.toFixed(2);
       const lastX = pixels[n - 1].x.toFixed(2);

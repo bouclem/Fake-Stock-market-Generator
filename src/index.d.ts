@@ -28,6 +28,8 @@ export interface Stock {
   /** milliseconds between bars (approximate for calendar intervals) */
   interval: number;
   sharesOutstanding: number | null;
+  /** decimals used for price fields when generated with `pricePrecision`; null = auto */
+  pricePrecision: number | null;
   bars: Bar[];
   splits?: SplitEntry[];
   color?: string;
@@ -44,6 +46,8 @@ export interface NetWorth {
   name: string | null;
   startValue: number;
   interval: number;
+  /** decimals used for values when generated with `pricePrecision`; null = auto */
+  pricePrecision: number | null;
   bars: NetWorthBar[];
   splits?: SplitEntry[];
   _type: 'networth';
@@ -94,6 +98,12 @@ export interface GenerateStockOptions {
   sharesOutstanding?: number | string;
   /** stocks only: include Saturday/Sunday bars (default: false — weekends are skipped) */
   weekends?: boolean;
+  /** anchor the LAST bar at this timestamp instead of the first (mutually exclusive
+   *  with `startDate`). Exact on uniform grids; stocks snap to the nearest earlier
+   *  tradable slot. */
+  endDate?: Date | number | string;
+  /** fixed decimal places for all price fields (0–8). Default: automatic. */
+  pricePrecision?: number;
   /** stocks only, intraday intervals: also generate pre-market (04:00–09:30) and
    *  after-hours (16:00–20:00) bars on a UTC clock, tagged via `bar.session`.
    *  Intraday bars are anchored to each session's open (e.g. hourly bars land on
@@ -119,6 +129,10 @@ export interface GenerateNetWorthOptions {
   bars?: number;
   interval?: number | string;
   startDate?: Date | number | string;
+  /** anchor the LAST bar at this timestamp instead of the first (exclusive with `startDate`) */
+  endDate?: Date | number | string;
+  /** fixed decimals for values (0–8). Default: automatic. */
+  pricePrecision?: number;
   seed?: number | string;
   /** Numbers or strings like "1_500_000" / "1.5M" */
   values?: (number | string)[];
@@ -213,8 +227,13 @@ export interface ChartOptions {
   yTicks?: number;
   /** Array, single event object, { events: [...] } envelope, or ".json" path (Node) */
   events?: ChartEvent[] | ChartEvent | { events: ChartEvent[] } | string;
-  /** 'price' (default) or 'worth' — worth requires sharesOutstanding */
+  /** 'price' (default) or 'worth' — worth requires sharesOutstanding;
+   *  works on line-family charts (line, area, multi-line, volume) */
   valueMode?: 'price' | 'worth';
+  /** single-series charts: color each segment green (rising) / red (falling) */
+  trend?: boolean;
+  /** fixed decimals for y-axis labels (default: stock's own precision, else auto) */
+  pricePrecision?: number;
   colors?: ChartColors;
 }
 

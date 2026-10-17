@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 2.0.2 — 2026-09-28
+
+### Added
+- `endDate` on `generateStock`/`generateMarket`/`generateNetWorth` — anchor the **last** bar instead of the first; `startDate` is computed backward. Mutually exclusive with `startDate`. Lands exactly on uniform grids (crypto, net worth); stocks snap to the nearest earlier tradable slot (weekday / Monday for `1w` / previous session-grid point intraday).
+- `pricePrecision` (0–8) on `generateStock`/`generateNetWorth` — fixed decimal places for all price/value fields, including custom `prices`/`ohlc`/`values` input and `worth`. Omitted = the existing automatic magnitude-based rounding. Stored as `stock.pricePrecision`/`netWorth.pricePrecision` and preserved through `toJSON`/`fromJSON`.
+- `pricePrecision` chart option — fixes y-axis label decimals; falls back to the data's own `pricePrecision` when not passed.
+- `trend: true` chart option — single-series line-family charts (line, area, chart-with-volume, net-worth) color each segment **green** when the value rises and **red** when it falls. Works in `price` and `worth` modes; extended-hours dots stay grey.
+
+### Fixed
+- `renderMultiLineChart` now honors `valueMode: 'worth'` — it previously hardcoded `b.close` and silently ignored the option. Missing `worth` data throws the same clear error as the single-stock renderers.
+- `renderChartWithVolume` gained the same `valueMode: 'worth'` support for `line`/`area` types; `bar`/`candlestick` + worth throws (a single value can't be drawn as OHLC).
+- Multi-line `area: true` fills now match the normal area chart — flat translucent series-color fill instead of per-series gradients (per-segment paint ordering preserved so smaller series stay visible).
+
 ## 2.0.1 — 2026-09-28
 
 ### Added

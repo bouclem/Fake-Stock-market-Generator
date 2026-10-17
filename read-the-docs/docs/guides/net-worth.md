@@ -33,6 +33,8 @@ writeFileSync('alice.svg', renderNetWorthChart(nw));
 | `bars`        | `number`                   | `100`                 | number of data points |
 | `interval`    | `number \| string`         | `"1mo"`               | step size; any interval string or ms |
 | `startDate`   | `Date \| number \| string` | `now - bars*interval` | first bar timestamp |
+| `endDate`     | `Date \| number \| string` | none                  | anchor the **last** point instead (lands exactly; exclusive with `startDate`) |
+| `pricePrecision` | `number`              | auto                  | fixed decimals (0–8) for values |
 | `seed`        | `number \| string`         | random                | reproducible output |
 | `values`      | `number[]`                 | none                  | supply your own net worth values |
 
@@ -43,6 +45,7 @@ writeFileSync('alice.svg', renderNetWorthChart(nw));
   name: string | null;
   startValue: number;
   interval: number;     // ms
+  pricePrecision: number | null;  // decimals used (null = automatic)
   bars: Array<{
     time: number;       // unix epoch in ms
     date: string;       // ISO 8601
