@@ -331,7 +331,8 @@ Shared by every chart renderer:
   padding: { top: 28, right: 24, bottom: 44, left: 64 },
   colors: { line: '#2563eb' },                  // override any single color
   valueMode: 'worth',                           // plot bar.worth instead of price (needs sharesOutstanding)
-  trend: true,                                  // single-series: green segments rising, red falling
+  trend: true,                                  // single-series: green/red segments + area fills
+  areaColor: '#22c55e',                         // flat color for the whole area fill (overrides trend fills)
   pricePrecision: 2,                            // fixed decimals on y-axis labels (default: data's own, else auto)
   events: [                                     // annotate specific dates
     { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
@@ -572,6 +573,7 @@ type ChartOptions = {
   }>;
   valueMode?: 'price' | 'worth';   // worth needs sharesOutstanding
   trend?: boolean;                 // single-series: green/red per direction
+  areaColor?: string;              // flat fill for the whole area (overrides trend fills)
   pricePrecision?: number;         // fixed decimals on y-axis labels
   events?: ChartEvent[];
 };

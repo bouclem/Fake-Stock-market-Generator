@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 2.0.3 — 2026-10-17
+
+### Added
+- **Trend-colored area fills** — with `trend: true`, the area under the line is now also colored per segment: translucent green where the value rises, red where it falls (neutral color for flat segments). Applies to `renderAreaChart`, `renderNetWorthChart`, and `renderChartWithVolume` with `type: 'area'`.
+- `areaColor` chart option — paints the entire area fill with one color of your choice (e.g. `{ areaColor: '#22c55e' }`). Overrides `colors.area` and disables trend-colored fills (the line itself still gets trend colors).
+
 ## 2.0.2 — 2026-09-28
 
 ### Added

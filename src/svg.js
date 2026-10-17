@@ -78,6 +78,9 @@ function resolve(options) {
   o.padding = { ...CHART_DEFAULTS.padding, ...(options?.padding || {}) };
   const baseTheme = THEMES[o.theme] || THEMES.light;
   o.colors = { ...baseTheme, ...(options?.colors || {}) };
+  // areaColor is a one-shot override for the whole area fill — it wins over
+  // colors.area and disables trend-colored fills (handled by callers).
+  if (o.areaColor != null) o.colors.area = escapeXml(o.areaColor);
   // Colors land in SVG attributes — escape them so a crafted color string
   // can't break out of the attribute and inject markup.
   for (const k in o.colors) o.colors[k] = escapeXml(o.colors[k]);
@@ -233,6 +236,39 @@ function buildSeriesLine(pixels, sessions, color, extColor, trend) {
     parts.push(`<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="2" fill="${extColor}" opacity="0.55"/>`);
   }
   return parts.join('');
+}
+
+/**
+ * Area fill for single-series charts. Without `trend`, one flat polygon in the
+ * neutral area color. With `trend`, the fill is split into per-segment
+ * trapezoids colored by direction — translucent green where the value rises,
+ * red where it falls, `color` for flat segments (matching the trend-colored
+ * line drawn on top).
+ * @param {{x:number,y:number}[]} pixels
+ * @param {number} baseY - pixel y of the chart bottom
+ * @param {string} areaColor - neutral fill (already translucent)
+ * @param {string} color - neutral trend color for flat segments
+ * @param {{up:string,down:string}|null} trend
+ */
+function buildTrendArea(pixels, baseY, areaColor, color, trend) {
+  const base = baseY.toFixed(2);
+  if (!trend) {
+    const points = [
+      `${pixels[0].x.toFixed(2)},${base}`,
+      ...pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`),
+      `${pixels[pixels.length - 1].x.toFixed(2)},${base}`
+    ].join(' ');
+    return `<polygon points="${points}" fill="${areaColor}" stroke="none"/>`;
+  }
+  let s = '';
+  for (let i = 0; i < pixels.length - 1; i++) {
+    const a = pixels[i];
+    const b = pixels[i + 1];
+    // Screen y is inverted: b.y < a.y means the value went up.
+    const c = b.y < a.y ? trend.up : b.y > a.y ? trend.down : color;
+    s += `<polygon points="${a.x.toFixed(2)},${base} ${a.x.toFixed(2)},${a.y.toFixed(2)} ${b.x.toFixed(2)},${b.y.toFixed(2)} ${b.x.toFixed(2)},${base}" fill="${c}" fill-opacity="0.18" stroke="none"/>`;
+  }
+  return s;
 }
 
 function escapeXml(str) {
@@ -492,15 +528,10 @@ export function renderAreaChart(stock, options) {
     y: yAt(plot, getValue(b), range)
   }));
 
-  const firstX = pixels[0].x.toFixed(2);
-  const lastX = pixels[n - 1].x.toFixed(2);
-  const baseY = (plot.y + plot.h).toFixed(2);
-  const areaPoints = `${firstX},${baseY} ${pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} ${lastX},${baseY}`;
-
   const body =
     buildAxes(o, plot, range, stock.bars, (b) => xForTime(b.time)) +
     buildEvents(evs, plot, o) +
-    `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
+    buildTrendArea(pixels, plot.y + plot.h, o.colors.area, o.colors.line, o.areaColor != null ? null : trend) +
     buildSeriesLine(pixels, stock.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultTitle(stock)) });
 
@@ -910,19 +941,12 @@ export function renderNetWorthChart(netWorth, options) {
   const pixels = netWorth.bars
     .map((b, i) => ({ x: xFor(b, i), y: yAt(plot, b.value, range) }));
 
-  const linePoints = pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
-
-  const firstX = xFor(netWorth.bars[0], 0).toFixed(2);
-  const lastX = xFor(netWorth.bars[n - 1], n - 1).toFixed(2);
-  const baseY = (plot.y + plot.h).toFixed(2);
-  const areaPoints = `${firstX},${baseY} ${linePoints} ${lastX},${baseY}`;
-
   const defaultLabel = netWorth.name ? `${netWorth.name} — Net Worth` : 'Net Worth';
 
   const body =
     buildAxes(o, plot, range, axisBars) +
     buildEvents(evs, plot, o) +
-    `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` +
+    buildTrendArea(pixels, plot.y + plot.h, o.colors.area, o.colors.line, o.areaColor != null ? null : trend) +
     buildSeriesLine(pixels, netWorth.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend) +
     buildTitle({ ...o, title: resolveTitle(o.title, defaultLabel) });
 
@@ -1247,11 +1271,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
     }));
     mainBody = buildSeriesLine(pixels, data.bars.map((b) => b.session), o.colors.line, o.colors.ext, trend);
     if (type === 'area') {
-      const firstX = pixels[0].x.toFixed(2);
-      const lastX = pixels[n - 1].x.toFixed(2);
-      const baseY = (mainPlot.y + mainPlot.h).toFixed(2);
-      const areaPoints = `${firstX},${baseY} ${pixels.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} ${lastX},${baseY}`;
-      mainBody = `<polygon points="${areaPoints}" fill="${o.colors.area}" stroke="none"/>` + mainBody;
+      mainBody = buildTrendArea(pixels, mainPlot.y + mainPlot.h, o.colors.area, o.colors.line, o.areaColor != null ? null : trend) + mainBody;
     }
   }
 

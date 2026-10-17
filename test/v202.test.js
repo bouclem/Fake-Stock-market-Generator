@@ -6,8 +6,10 @@ import {
   toJSON,
   fromJSON,
   renderLineChart,
+  renderAreaChart,
   renderMultiLineChart,
-  renderChartWithVolume
+  renderChartWithVolume,
+  renderNetWorthChart
 } from '../src/index.js';
 
 // ── multi-line worth mode ────────────────────────────────────────────
@@ -232,4 +234,58 @@ test('without trend, a single polyline is still emitted', () => {
   const s = generateStock({ seed: 'nt', bars: 15 });
   const svg = renderLineChart(s);
   assert.ok(svg.includes('<polyline'));
+});
+
+
+// ── 2.0.3: trend-colored area fill + areaColor ──────────────────────
+
+test('trend: true colors the area fill per direction on renderAreaChart', () => {
+  const s = generateStock({ prices: [10, 12, 11, 13], startDate: '2024-01-02' });
+  const svg = renderAreaChart(s, { trend: true });
+  assert.ok(svg.includes('fill="#16a34a"'), 'expected green fill segment');
+  assert.ok(svg.includes('fill="#dc2626"'), 'expected red fill segment');
+  assert.ok(svg.includes('fill-opacity="0.18"'));
+});
+
+test('trend area fill works on renderNetWorthChart', () => {
+  const nw = generateNetWorth({ values: [100, 120, 90], startDate: '2024-01-01', interval: '1d' });
+  const svg = renderNetWorthChart(nw, { trend: true });
+  assert.ok(svg.includes('fill="#16a34a"'));
+  assert.ok(svg.includes('fill="#dc2626"'));
+});
+
+test('trend area fill works on renderChartWithVolume area type', () => {
+  const s = generateStock({ prices: [10, 12, 11], startDate: '2024-01-02' });
+  const svg = renderChartWithVolume(s, 'area', { trend: true });
+  assert.ok(svg.includes('fill="#16a34a"'));
+  assert.ok(svg.includes('fill="#dc2626"'));
+});
+
+test('flat segments fall back to the neutral color', () => {
+  const s = generateStock({ prices: [10, 12, 12, 11], startDate: '2024-01-02' });
+  const svg = renderAreaChart(s, { trend: true });
+  // 12→12 is flat: fill uses the neutral line color
+  assert.ok(svg.includes('fill="#2563eb"'));
+});
+
+test('area without trend keeps the single flat fill', () => {
+  const s = generateStock({ prices: [10, 12, 11], startDate: '2024-01-02' });
+  const svg = renderAreaChart(s);
+  assert.ok(!svg.includes('fill="#16a34a"'));
+  assert.ok(!svg.includes('fill-opacity="0.18"'));
+});
+
+test('areaColor fills the whole area with the given color', () => {
+  const s = generateStock({ prices: [10, 12, 11], startDate: '2024-01-02' });
+  const svg = renderAreaChart(s, { areaColor: '#aabbcc' });
+  assert.ok(svg.includes('fill="#aabbcc"'));
+});
+
+test('areaColor wins over trend: fill stays flat, line still trends', () => {
+  const s = generateStock({ prices: [10, 12, 11, 13], startDate: '2024-01-02' });
+  const svg = renderAreaChart(s, { areaColor: '#aabbcc', trend: true });
+  assert.ok(svg.includes('fill="#aabbcc"'), 'custom flat fill');
+  assert.ok(!svg.includes('fill="#16a34a"'), 'no trend fill');
+  assert.ok(svg.includes('stroke="#16a34a"'), 'line segment still green');
+  assert.ok(svg.includes('stroke="#dc2626"'), 'line segment still red');
 });

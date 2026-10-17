@@ -88,7 +88,7 @@ Generation option (integer 0–8) that fixes the number of decimals on every pri
 
 ## Trend coloring
 
-Chart option (`trend: true`) for single-series line charts: every segment between two bars is drawn green when the value rose and red when it fell. Works for both `price` and `worth` modes; extended-hours dots stay grey.
+Chart option (`trend: true`) for single-series line charts: every segment between two bars is drawn green when the value rose and red when it fell — on area charts the fill under each segment is colored the same way. Works for both `price` and `worth` modes; extended-hours dots stay grey. The `areaColor` option overrides the fill with one flat color for the whole area.
 
 ## Market
 

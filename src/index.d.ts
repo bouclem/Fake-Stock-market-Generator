@@ -230,10 +230,14 @@ export interface ChartOptions {
   /** 'price' (default) or 'worth' — worth requires sharesOutstanding;
    *  works on line-family charts (line, area, multi-line, volume) */
   valueMode?: 'price' | 'worth';
-  /** single-series charts: color each segment green (rising) / red (falling) */
+  /** single-series charts: color each segment green (rising) / red (falling);
+   *  the area fill under the line follows the same per-segment colors */
   trend?: boolean;
   /** fixed decimals for y-axis labels (default: stock's own precision, else auto) */
   pricePrecision?: number;
+  /** flat color for the whole area fill (e.g. '#22c55e'); overrides colors.area
+   *  and disables trend-colored fills — the line still gets trend colors */
+  areaColor?: string;
   colors?: ChartColors;
 }
 

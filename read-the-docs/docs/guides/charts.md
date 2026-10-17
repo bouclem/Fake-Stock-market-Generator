@@ -130,7 +130,19 @@ renderLineChart(stock, { trend: true });
 renderLineChart(stock, { trend: true, valueMode: 'worth' }); // works on market cap too
 ```
 
+On area charts the **fill under the line follows the same per-segment colors** — translucent green where the value rises, red where it falls.
+
 Extended-hours dots stay grey — only regular-session segments are trend-colored.
+
+## Custom area color — `areaColor`
+
+Paint the whole area fill with one color of your choice:
+
+```js
+renderAreaChart(stock, { areaColor: '#22c55e' });
+```
+
+`areaColor` overrides `colors.area` and wins over trend coloring — with `trend: true` + `areaColor`, the line segments still go green/red but the fill stays your flat color. Works on `renderAreaChart`, `renderNetWorthChart`, and `renderChartWithVolume` with `type: 'area'`.
 
 ## Axis decimals — `pricePrecision`
 

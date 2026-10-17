@@ -56,7 +56,7 @@ All renderers return a complete SVG string. Save it to a file, drop it into HTML
 
 Every chart supports **event markers** — annotate specific dates with a full-height dashed line and a short label at the top of the chart. Load events from a separate `.json` file with `loadEvents()`.
 
-All line-family renderers (line, area, multi-line, chart-with-volume) support `valueMode: 'worth'` to plot total company valuation instead of per-share price — and `trend: true` on single-series charts colors each segment **green** when the value rises and **red** when it falls.
+All line-family renderers (line, area, multi-line, chart-with-volume) support `valueMode: 'worth'` to plot total company valuation instead of per-share price — and `trend: true` on single-series charts colors each segment **green** when the value rises and **red** when it falls (area charts color the fill per segment too). A custom fill color for the whole area is one option away with `areaColor`.
 
 When a stock was generated with `extendedHours: true`, pre-market and after-hours bars render **Yahoo Finance–style**: the regular-session line stays solid and the extended-hours segments are drawn as grey semi-transparent dots (grey candles/bars on OHLC and volume charts).
 
@@ -535,6 +535,8 @@ Chart options:
   colors: { line: '#2563eb' }, // override any single color
   valueMode: 'worth',      // plot market cap (bar.worth) instead of price — needs sharesOutstanding
   trend: true,             // single-series charts: green segments rising, red falling
+                           // (area charts color the fill per segment too)
+  areaColor: '#22c55e',    // flat color for the whole area fill — overrides trend fills
   pricePrecision: 2,       // fixed decimals on y-axis labels (default: stock's own, else auto)
   events: [                // annotate specific dates
     { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
