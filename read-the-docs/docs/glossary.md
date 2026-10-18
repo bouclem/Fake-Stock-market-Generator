@@ -110,3 +110,11 @@ A profile preset that picks log-distributed start prices ($0.01 to $50,000) and 
 ## Stock kind
 
 The default profile: linear-uniform start prices ($50 to $500), modest drift (-15% to +25%/yr), modest volatility (10% to 60%/yr). Set explicitly with `kind: 'stock'` if you want.
+
+## VideoChart
+
+The animated chart produced by `renderVideoChart`: a real H.264 `.mp4` where each company's **market cap** (`bar.worth` = `close × sharesOutstanding`) draws as a progressive line while a bottom-right ranking panel reorders in sync. Company valuations only — stocks without `sharesOutstanding` are rejected. Encoding uses the optional peer dependency `h264-mp4-encoder`.
+
+## Market cap (worth)
+
+`bar.worth` on a generated stock: `close × sharesOutstanding` — the company's total valuation at that bar, as opposed to the per-share `close` price. Present only when the stock was generated with `sharesOutstanding`. Used by `valueMode: 'worth'` charts and by VideoChart.

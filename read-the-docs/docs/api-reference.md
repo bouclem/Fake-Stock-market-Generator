@@ -392,6 +392,42 @@ See [HTML page builder](guides/html-page.md) for usage details and customisation
 
 ---
 
+## Video
+
+### `renderVideoChart(stocks, options?) -> Promise<Uint8Array>`
+
+Renders an animated company-valuation chart video — a progressive line graph
+with a synchronized bottom-right ranking — and returns the H.264 **`.mp4`**
+file bytes (`Buffer` in Node).
+
+```js
+writeFileSync('chart-race.mp4', await renderVideoChart(market, {
+  title: 'MARKET CAP RACE', seconds: 8
+}));
+```
+
+VideoChart supports **company valuations only**: every stock needs
+`sharesOutstanding` so bars carry `worth`. Requires the optional peer
+dependency `h264-mp4-encoder` (`npm install h264-mp4-encoder`).
+
+| Option        | Type                  | Default        | Notes |
+| ------------- | --------------------- | -------------- | ----- |
+| `width`       | `number`              | `1280`         | frame width (snapped to even) |
+| `height`      | `number`              | `720`          | frame height (snapped to even) |
+| `fps`         | `number`              | `30`           | frames per second |
+| `seconds`     | `number`              | `10`           | duration |
+| `theme`       | `'light' \| 'dark'`   | `'dark'`       | color theme |
+| `title`       | `string`              | `'Market Cap'` | top title |
+| `colors`      | `object`              | —              | theme color overrides |
+| `maxRanked`   | `number`              | `10`           | ranking panel rows |
+| `quality`     | `number`              | `20`           | H.264 quantizer 1–51, lower = better |
+| `supersample` | `number`              | `2`            | anti-aliased rendering (1–4) |
+| `kbps`        | `number`              | auto           | bitrate override |
+
+See [Video charts](guides/video.md) for the full guide.
+
+---
+
 ## Helpers
 
 ### `createRng(seed?) -> Rng`
@@ -576,6 +612,20 @@ type ChartOptions = {
   areaColor?: string;              // flat fill for the whole area (overrides trend fills)
   pricePrecision?: number;         // fixed decimals on y-axis labels
   events?: ChartEvent[];
+};
+
+type VideoChartOptions = {
+  width?: number;                  // default 1280 (snapped to even)
+  height?: number;                 // default 720 (snapped to even)
+  fps?: number;                    // default 30
+  seconds?: number;                // default 10
+  theme?: 'light' | 'dark';        // default 'dark'
+  title?: string;                  // default 'Market Cap'
+  colors?: Record<string, string>; // theme color overrides
+  maxRanked?: number;              // default 10 — ranking panel rows
+  quality?: number;                // default 20 — H.264 quantizer 1–51
+  supersample?: number;            // default 2 — anti-aliasing (1–4)
+  kbps?: number;                   // optional bitrate override
 };
 ```
 

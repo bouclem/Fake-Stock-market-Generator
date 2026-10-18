@@ -611,6 +611,56 @@ const market = generateMarket({ count: 8, bars: 90, seed: 'page' });
 writeFileSync('market.html', renderHtmlPage(market, { theme: 'dark' })); // line is the default
 ```
 
+### `renderVideoChart(stocks, options) -> Promise<Uint8Array>`
+
+Renders an animated company-valuation chart to a real H.264 **`.mp4`** file you
+can upload anywhere video is accepted (YouTube, etc.):
+
+- a line graph of each company's **market cap** (`bar.worth` = `close × sharesOutstanding`)
+  that draws progressively as time advances
+- a dynamic horizontal bar ranking in the bottom-right corner whose positions
+  and bar lengths update in sync with the graph — only the companies you pass
+  in are ranked
+
+VideoChart supports **company valuations only**: every stock needs
+`sharesOutstanding`, otherwise it throws.
+
+```js
+import { generateMarket, renderVideoChart } from 'stock-market-gen';
+import { writeFileSync } from 'node:fs';
+
+const market = generateMarket({
+  count: 5, bars: 120, seed: 'race',
+  sharesOutstanding: [5e6, 12e6, 2e7, 8e6, 3e7]
+});
+writeFileSync('chart-race.mp4', await renderVideoChart(market, {
+  title: 'MARKET CAP RACE', seconds: 8, fps: 30
+}));
+```
+
+Video encoding uses the **optional peer dependency**
+[`h264-mp4-encoder`](https://www.npmjs.com/package/h264-mp4-encoder) (pure WASM,
+no native build). It isn't required for the rest of the package — install it
+only if you want video:
+
+```bash
+npm install h264-mp4-encoder
+```
+
+| Option        | Type                  | Default         | Description |
+| ------------- | --------------------- | --------------- | ----------- |
+| `width`       | `number`              | `1280`          | frame width in px (snapped to even) |
+| `height`      | `number`              | `720`           | frame height in px (snapped to even) |
+| `fps`         | `number`              | `30`            | frames per second |
+| `seconds`     | `number`              | `10`            | video duration |
+| `theme`       | `'light' \| 'dark'`   | `'dark'`        | color theme |
+| `title`       | `string`              | `'Market Cap'`  | title drawn at the top |
+| `colors`      | `object`              | —               | override theme colors (e.g. `{ bg: '#000' }`) |
+| `maxRanked`   | `number`              | `10`            | rows shown in the ranking panel |
+| `quality`     | `number`              | `20`            | H.264 quantizer 1–51, lower = better |
+| `supersample` | `number`              | `2`             | draw at N× then downsample — anti-aliased edges (1 = off, 4 = max) |
+| `kbps`        | `number`              | auto            | bitrate override in kbit/s |
+
 ## Examples
 
 ```bash

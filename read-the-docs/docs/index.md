@@ -56,6 +56,7 @@ That's it. One stock, one year of daily bars, one SVG chart.
     - [Net worth](guides/net-worth.md) — generate and render net worth series.
     - [Multi-line comparison](guides/multi-line.md) — several companies on one chart.
     - [HTML page builder](guides/html-page.md) — self-contained dashboard pages.
+    - [Video charts](guides/video.md) — animated market-cap race videos as real `.mp4` files.
     - [Intervals](guides/intervals.md) — fixed and calendar-aware bar sizes.
 - [API reference](api-reference.md) — every function and option.
 - [Recipes](recipes.md) — copy-paste examples.

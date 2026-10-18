@@ -82,6 +82,7 @@ nav:
       - guides/net-worth.md
       - guides/multi-line.md
       - guides/html-page.md
+      - guides/video.md
       - guides/intervals.md
   - API reference: api-reference.md
   - Recipes: recipes.md

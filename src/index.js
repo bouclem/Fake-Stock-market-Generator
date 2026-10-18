@@ -16,5 +16,7 @@ export {
   renderChartWithVolume
 } from './svg.js';
 export { renderHtmlPage } from './html.js';
+export { renderVideoChart } from './video.js';
+export { Framebuffer } from './framebuf.js';
 export { createRng } from './prng.js';
 export { parseInterval, parseIntervalSpec } from './interval.js';

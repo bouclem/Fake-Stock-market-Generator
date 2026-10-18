@@ -288,3 +288,61 @@ export interface HtmlPageOptions {
   chartOptions?: ChartOptions;
 }
 export function renderHtmlPage(marketOrStock: Stock | Stock[], options?: HtmlPageOptions): string;
+
+// ---------- Video ----------
+
+export interface VideoChartOptions {
+  /** Frame width in pixels (default: 960, snapped to even) */
+  width?: number;
+  /** Frame height in pixels (default: 544, snapped to even) */
+  height?: number;
+  /** Frames per second (default: 30) */
+  fps?: number;
+  /** Video duration in seconds (default: 10) */
+  seconds?: number;
+  /** Color theme (default: 'dark') */
+  theme?: 'light' | 'dark';
+  /** Title drawn at the top (default: 'Market Cap') */
+  title?: string;
+  /** Override theme colors (e.g. { bg: '#000000' }) */
+  colors?: Record<string, string>;
+  /** Rows shown in the ranking panel (default: 10) */
+  maxRanked?: number;
+  /** H.264 quantizer 1–51, lower = better quality (default: 20) */
+  quality?: number;
+  /** Draw at N× resolution then downsample for anti-aliased edges (default: 2, range 1–4) */
+  supersample?: number;
+  /** Optional bitrate override in kbit/s */
+  kbps?: number;
+}
+
+/**
+ * Render an animated company-valuation (market cap) chart video.
+ *
+ * Every stock must carry `worth` on all bars (generate with
+ * `sharesOutstanding` so worth = close × sharesOutstanding).
+ * Requires the optional peer dependency `h264-mp4-encoder`.
+ *
+ * @returns H.264 `.mp4` file bytes (`Buffer` in Node, `Uint8Array` in the
+ * browser build) — write to disk or upload.
+ */
+export function renderVideoChart(stocks: Stock[], options?: VideoChartOptions): Promise<Uint8Array>;
+
+/** Software RGB framebuffer used internally for video frames. */
+export class Framebuffer {
+  constructor(width: number, height: number);
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+  fill(color: string | number | [number, number, number]): this;
+  set(x: number, y: number, color: string | number | [number, number, number]): this;
+  fillRect(x: number, y: number, w: number, h: number, color: string | number | [number, number, number]): this;
+  rect(x: number, y: number, w: number, h: number, color: string | number | [number, number, number]): this;
+  line(x0: number, y0: number, x1: number, y1: number, color: string | number | [number, number, number], thickness?: number): this;
+  polyline(pts: [number, number][], color: string | number | [number, number, number], thickness?: number): this;
+  fillPoly(pts: [number, number][], color: string | number | [number, number, number]): this;
+  circle(cx: number, cy: number, r: number, color: string | number | [number, number, number]): this;
+  text(x: number, y: number, str: string, color: string | number | [number, number, number], scale?: number): this;
+  textWidth(str: string, scale?: number): number;
+  textRight(xRight: number, y: number, str: string, color: string | number | [number, number, number], scale?: number): this;
+}

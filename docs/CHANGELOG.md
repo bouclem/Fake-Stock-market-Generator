@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here.
 
+## 2.1.0 — 2026-10-17
+
+### Added
+- **Video generation.** New `renderVideoChart(stocks, options)` renders an animated financial chart to a real H.264 **`.mp4`** file (returns `Buffer`/`Uint8Array` — write to disk or upload to YouTube).
+- **`VideoChart`** — animated financial charts with a dynamic ranking:
+  - Progressive line graph rendering as time advances.
+  - Dynamic horizontal bar chart ranking positioned in the bottom-right corner.
+  - Ranking positions and bar lengths update according to company valuations over time.
+  - Ranking synchronized with the main line graph.
+  - Companies ranked exclusively from those provided in the input statistics.
+  - VideoChart supports company valuations only — every stock must carry `worth` (`close × sharesOutstanding`), otherwise it throws.
+- Options: `width`/`height` (default 1280×720), `fps` (30), `seconds` (10), `theme`, `title`, `colors`, `maxRanked` (10), `quality` (H.264 quantizer), `supersample` (2× anti-aliased rendering), `kbps`.
+- New software rasterizer `src/framebuf.js` (exported as `Framebuffer`): RGB framebuffer with lines, rects, polygons, circles, and a 5×7 bitmap font used to draw video frames.
+- Encoding uses the **optional peer dependency** `h264-mp4-encoder` (pure WASM — no native build); the rest of the package stays zero-dependency.
+
 ## 2.0.3 — 2026-10-17
 
 ### Added

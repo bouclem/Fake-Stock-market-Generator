@@ -32,6 +32,7 @@ Things that could ship in future versions. Nothing here is committed.
 - [ ] Tooltips and hover state when used in HTML pages
 - [ ] PNG export helper (likely opt-in, not bundled, to stay zero-dep)
 - [ ] `renderHtmlPage` support for `NetWorth` objects alongside stocks
+- [x] `renderVideoChart` — animated market-cap chart → real `.mp4` via optional `h264-mp4-encoder` peer — shipped in 2.1.0
 
 ## Tooling
 - [ ] CLI: `npx stock-market-gen --count 5 --bars 100 --out market.html`

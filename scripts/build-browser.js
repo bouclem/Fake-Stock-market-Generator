@@ -25,7 +25,9 @@ const ORDER = [
   'events.js',
   'splits.js',
   'svg.js',
-  'html.js'
+  'html.js',
+  'framebuf.js',
+  'video.js'
 ];
 
 function stripModuleSyntax(source) {
