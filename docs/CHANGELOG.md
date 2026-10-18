@@ -8,7 +8,7 @@ All notable changes to this project are documented here.
 - **Trend-colored area fills** — with `trend: true`, the area under the line is now also colored per segment: translucent green where the value rises, red where it falls (neutral color for flat segments). Applies to `renderAreaChart`, `renderNetWorthChart`, and `renderChartWithVolume` with `type: 'area'`.
 - `areaColor` chart option — paints the entire area fill with one color of your choice (e.g. `{ areaColor: '#22c55e' }`). Overrides `colors.area` and disables trend-colored fills (the line itself still gets trend colors).
 
-## 2.0.2 — 2026-09-28
+## 2.0.2 — 2026-10-17
 
 ### Added
 - `endDate` on `generateStock`/`generateMarket`/`generateNetWorth` — anchor the **last** bar instead of the first; `startDate` is computed backward. Mutually exclusive with `startDate`. Lands exactly on uniform grids (crypto, net worth); stocks snap to the nearest earlier tradable slot (weekday / Monday for `1w` / previous session-grid point intraday).
@@ -21,7 +21,7 @@ All notable changes to this project are documented here.
 - `renderChartWithVolume` gained the same `valueMode: 'worth'` support for `line`/`area` types; `bar`/`candlestick` + worth throws (a single value can't be drawn as OHLC).
 - Multi-line `area: true` fills now match the normal area chart — flat translucent series-color fill instead of per-series gradients (per-segment paint ordering preserved so smaller series stay visible).
 
-## 2.0.1 — 2026-09-28
+## 2.0.1 — 2026-09-30
 
 ### Added
 - **Market-hours scheduling for stocks** (UTC clock): generated stock bars now skip weekends and land inside the regular session (09:30–16:00) by default. Intraday bars snap forward to the next tradable slot; a `startDate` outside trading hours is moved to the next session.
