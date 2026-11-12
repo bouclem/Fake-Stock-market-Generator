@@ -409,7 +409,7 @@ formatHumanNumber(2300000000); // "2.3B"
 formatHumanNumber(1e12);      // "1T"
 ```
 
-All chart axes automatically use `formatHumanNumber` for large values (≥5000), so market cap charts show "15.2M" instead of "15200000".
+All chart axes automatically use `formatHumanNumber` for large values (≥5000), so market cap charts show "15.20M" instead of "15200000" — `pricePrecision` controls the digits after the suffix (default 2).
 
 Use in JSON configs:
 ```json
@@ -537,7 +537,9 @@ Chart options:
   trend: true,             // single-series charts: green segments rising, red falling
                            // (area charts color the fill per segment too)
   areaColor: '#22c55e',    // flat color for the whole area fill — overrides trend fills
-  pricePrecision: 2,       // fixed decimals on y-axis labels (default: stock's own, else auto)
+  pricePrecision: 2,       // decimals on y-axis labels (default: stock's own, else 2;
+                           // above 5K it sets the digits on the K/M/B/T label — 'worth'
+                           // mode included, e.g. 3 → "1.138T")
   events: [                // annotate specific dates
     { date: '2024-03-15', label: 'Earnings', color: '#f59e0b' },
     { date: '2024-07-01', label: 'Split' }

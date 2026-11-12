@@ -233,7 +233,9 @@ export interface ChartOptions {
   /** single-series charts: color each segment green (rising) / red (falling);
    *  the area fill under the line follows the same per-segment colors */
   trend?: boolean;
-  /** fixed decimals for y-axis labels (default: stock's own precision, else auto) */
+  /** decimals for y-axis labels — under 5K fixed decimals, above it the digits on
+   *  the K/M/B/T-suffixed number (worth mode included, e.g. 3 → "1.138T").
+   *  Default: stock's own `pricePrecision`, else 2 */
   pricePrecision?: number;
   /** flat color for the whole area fill (e.g. '#22c55e'); overrides colors.area
    *  and disables trend-colored fills — the line still gets trend colors */

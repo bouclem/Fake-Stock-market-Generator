@@ -13,6 +13,25 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+// Chart sizes end up inside SVG attributes. Validate them here so a
+// user-chosen size fails loudly at the page boundary — resolve() in svg.js
+// rejects them too, but only after the chart render has already started.
+function assertChartSizes(opts) {
+  for (const key of ['width', 'height']) {
+    if (opts[key] !== undefined && !Number.isFinite(Number(opts[key]))) {
+      throw new Error(`renderHtmlPage: chartOptions.${key} must be a finite number, got ${JSON.stringify(opts[key])}`);
+    }
+  }
+  if (opts.padding) {
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      const v = opts.padding[side];
+      if (v !== undefined && !Number.isFinite(Number(v))) {
+        throw new Error(`renderHtmlPage: chartOptions.padding.${side} must be a finite number, got ${JSON.stringify(v)}`);
+      }
+    }
+  }
+}
+
 function changePct(stock) {
   const first = stock.bars[0].open;
   const last = stock.bars[stock.bars.length - 1].close;
@@ -288,6 +307,7 @@ export function renderHtmlPage(marketOrStock, options = {}) {
     ...(options.chartOptions || {})
   };
   const title = options.title || 'Fake Stock Market';
+  assertChartSizes(options.chartOptions || {});
 
   const cardChartOpts = { width: 600, height: 320, ...baseChartOpts };
   const detailChartOpts = { width: 1040, height: 460, ...baseChartOpts };

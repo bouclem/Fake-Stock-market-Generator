@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 2.1.1 — 2026-11-12
+
+### Added
+- `pricePrecision` now applies to `valueMode: 'worth'` axes — it sets the decimals on the K/M/B/T-suffixed labels (e.g. `3` → `1.138T`). Previously it produced raw un-suffixed numbers on worth charts.
+- Grown charts floor the Y axis at the series' all-time low: once the range is large enough that the 5% padding would clamp to 0, the bottom tick becomes the ATL instead. Applies to line/area/OHLC, worth, multi-line, net-worth, mixed and volume charts.
+
+### Changed
+- Default axis precision is now **2** decimals on price and worth labels (was magnitude-based auto: `1.1T` → `1.14T`, `150.0` → `150.00`, `10500` → `10.5K`).
+
+### Fixed
+- Chart `width`/`height`/`padding` are validated as finite numbers — a crafted chart size passed through `renderHtmlPage` (or any renderer) can no longer inject markup into the generated SVG/HTML. `renderHtmlPage` validates `chartOptions` sizes up front as well.
+
 ## 2.1.0 — 2026-10-17
 
 ### Added

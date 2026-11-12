@@ -31,6 +31,7 @@ const THEMES = {
 };
 
 const CHART_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_AXIS_PRECISION = 2;
 
 const CHART_DEFAULTS = {
   width: 1200,
@@ -68,14 +69,32 @@ const CHART_DEFAULTS = {
  *   Works on line-family charts (line, area, multi-line, volume) — OHLC types reject it.
  * @property {boolean} [trend] - Color each line segment green when the value rises
  *   and red when it falls (single-series line-family charts).
- * @property {number} [pricePrecision] - Fixed decimals for y-axis labels.
- *   Default: the stock's own `pricePrecision` if set, else automatic.
+ * @property {number} [pricePrecision] - Decimals for y-axis labels: fixed
+ *   decimals under 5K, suffix digits for K/M/B/T labels above it — worth mode
+ *   included (3 → "1.138T").
+ *   Default: the stock's own `pricePrecision` if set, else 2.
  * @property {Partial<typeof THEMES.light>} [colors] - Override individual colors
  */
+
+// width/height/padding are interpolated into SVG attributes in svgWrap —
+// force them to finite numbers so a crafted string (e.g. a chart size chosen
+// by an end user of renderHtmlPage) can't inject markup into the output.
+function finiteNumber(value, name) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`${name} must be a finite number, got ${JSON.stringify(value)}`);
+  }
+  return n;
+}
 
 function resolve(options) {
   const o = { ...CHART_DEFAULTS, ...options };
   o.padding = { ...CHART_DEFAULTS.padding, ...(options?.padding || {}) };
+  o.width = finiteNumber(o.width, 'width');
+  o.height = finiteNumber(o.height, 'height');
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    o.padding[side] = finiteNumber(o.padding[side], `padding.${side}`);
+  }
   const baseTheme = THEMES[o.theme] || THEMES.light;
   o.colors = { ...baseTheme, ...(options?.colors || {}) };
   // areaColor is a one-shot override for the whole area fill — it wins over
@@ -289,6 +308,16 @@ function plotArea(o) {
   };
 }
 
+// Y-axis floor: `min - pad` while that stays above the data's own minimum.
+// Once a series has grown enough that the padding would dip to/below 0, pin
+// the axis to the data minimum (the all-time low) instead of clamping at 0 —
+// a grown chart keeps its ATL as the bottom tick rather than wasting the
+// 0→ATL band.
+function yFloor(min, pad) {
+  const padded = min - pad;
+  return padded > 0 ? padded : min;
+}
+
 function priceRange(bars, useOHLC) {
   let min = Infinity;
   let max = -Infinity;
@@ -304,22 +333,18 @@ function priceRange(bars, useOHLC) {
     max += 1;
   }
   // Pad the range a touch so the line doesn't kiss the edges.
-  // Clip to zero so stock charts never show negative prices.
   const pad = (max - min) * 0.05;
-  return { min: Math.max(0, min - pad), max: max + pad };
+  return { min: yFloor(min, pad), max: max + pad };
 }
 
 function formatPrice(n, precision) {
-  // Explicit precision (chart option or stock.pricePrecision) wins over auto.
-  if (precision != null) return n.toFixed(precision);
-  const abs = Math.abs(n);
-  // Use human-readable format (K/M/B/T) for large numbers on axes
-  if (abs >= 5000) return formatHumanNumber(n, 1);
-  if (abs >= 1000) return n.toFixed(0);
-  if (abs >= 100) return n.toFixed(1);
-  if (abs >= 1) return n.toFixed(2);
-  if (abs >= 0.01) return n.toFixed(4);
-  return n.toFixed(6);
+  // Resolved precision: chart option > stock.pricePrecision > default (2).
+  const p = precision == null ? DEFAULT_AXIS_PRECISION : precision;
+  // Large magnitudes keep the K/M/B/T suffixes and the precision sets the
+  // decimals on the scaled number (1.14T at p=2, 1.138T at p=3) — this is
+  // what makes pricePrecision meaningful on worth-mode axes.
+  if (Math.abs(n) >= 5000) return formatHumanNumber(n, p);
+  return n.toFixed(p);
 }
 
 function formatDateShort(time, multiYear, intraday) {
@@ -735,7 +760,7 @@ export function renderMultiLineChart(stocks, options = {}) {
   }
   if (vMin === vMax) { vMin -= 1; vMax += 1; }
   const vPad = (vMax - vMin) * 0.05;
-  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+  const range = { min: yFloor(vMin, vPad), max: vMax + vPad };
   if (tMax === tMin) tMax = tMin + 1;
 
   function xForTime(time) {
@@ -867,7 +892,7 @@ function worthRange(bars) {
   }
   if (min === max) { min -= 1; max += 1; }
   const pad = (max - min) * 0.05;
-  return { min: Math.max(0, min - pad), max: max + pad };
+  return { min: yFloor(min, pad), max: max + pad };
 }
 
 /**
@@ -926,7 +951,7 @@ export function renderNetWorthChart(netWorth, options) {
   }
   if (vMin === vMax) { vMin -= 1; vMax += 1; }
   const vPad = (vMax - vMin) * 0.05;
-  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+  const range = { min: yFloor(vMin, vPad), max: vMax + vPad };
 
   const n = netWorth.bars.length;
   const tMin = netWorth.bars[0].time;
@@ -1082,7 +1107,7 @@ export function renderMixedChart(items, options = {}) {
 
   if (vMin === vMax) { vMin -= 1; vMax += 1; }
   const vPad = (vMax - vMin) * 0.05;
-  const range = { min: vMin - vPad, max: vMax + vPad };
+  const range = { min: yFloor(vMin, vPad), max: vMax + vPad };
 
   // Build SVG paths
   const lines = series.map(s => {
@@ -1216,7 +1241,7 @@ export function renderChartWithVolume(data, type = 'line', options = {}) {
   }
   if (vMin === vMax) { vMin -= 1; vMax += 1; }
   const vPad = (vMax - vMin) * 0.05;
-  const range = { min: Math.max(0, vMin - vPad), max: vMax + vPad };
+  const range = { min: yFloor(vMin, vPad), max: vMax + vPad };
 
   // Volume range (bars start at 0)
   let volMax = 0;
